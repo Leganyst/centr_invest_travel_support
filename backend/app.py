@@ -72,8 +72,8 @@ def serve_frontend() -> HTMLResponse:
     return HTMLResponse(content)
 
 
-@app.get("/favicon.{ext}", include_in_schema=False)
-def serve_favicon(ext: str) -> FileResponse | HTMLResponse:
+@app.get("/favicon.{ext}", include_in_schema=False, response_model=None)
+def serve_favicon(ext: str):
     if FAVICON_PATH.exists():
         media_type = "image/svg+xml" if ext == "svg" else "image/x-icon"
         return FileResponse(FAVICON_PATH, media_type=media_type)
