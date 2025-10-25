@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ../backend
+    env_file:
+      - ../.env
+    environment:
+      - PORT=8080
+    ports:
+      - "8080:8080"
+    networks:
+      - app_net
+
+  bot:
+    build:
+      context: ../bot
+    env_file:
+      - ../.env
+    environment:
+      - BACKEND_URL=http://backend:8080
+    depends_on:
+      - backend
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge

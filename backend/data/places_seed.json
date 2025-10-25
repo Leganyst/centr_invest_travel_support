@@ -1,0 +1,182 @@
+[
+  {
+    "id": "rostov-kremlin",
+    "name": "Ростовский кремль",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2211,
+    "lon": 39.4224,
+    "tags": ["history", "museum"],
+    "description": "Главная историческая крепость и музей-заповедник."
+  },
+  {
+    "id": "gorky-park",
+    "name": "Парк им. Горького",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2228,
+    "lon": 39.7103,
+    "tags": ["park", "walk", "nature"],
+    "description": "Центральный городской парк для прогулок."
+  },
+  {
+    "id": "pushkinskaya-street",
+    "name": "Пушкинская улица",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2234,
+    "lon": 39.7167,
+    "tags": ["walk", "architecture"],
+    "description": "Пешеходный бульвар с историческими зданиями."
+  },
+  {
+    "id": "embankment",
+    "name": "Набережная Дона",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2155,
+    "lon": 39.7115,
+    "tags": ["walk", "nature", "embankment"],
+    "description": "Прогулочная зона вдоль реки Дон."
+  },
+  {
+    "id": "regional-museum",
+    "name": "Областной краеведческий музей",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2174,
+    "lon": 39.7071,
+    "tags": ["museum", "history"],
+    "description": "Экспозиции по истории и природе региона."
+  },
+  {
+    "id": "artist-gallery",
+    "name": "Галерея художника",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2157,
+    "lon": 39.7025,
+    "tags": ["gallery", "art"],
+    "description": "Локальные выставки современного искусства."
+  },
+  {
+    "id": "solnechnyy-park",
+    "name": "Солнечный парк",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2360,
+    "lon": 39.7133,
+    "tags": ["park", "family", "nature"],
+    "description": "Зелёная зона для семейного отдыха."
+  },
+  {
+    "id": "botanical-garden",
+    "name": "Ботанический сад ЮФУ",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2908,
+    "lon": 39.7203,
+    "tags": ["nature", "walk"],
+    "description": "Коллекции редких растений и теплиц."
+  },
+  {
+    "id": "paramonov-warehouses",
+    "name": "Парамоновские склады",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2187,
+    "lon": 39.7099,
+    "tags": ["history", "architecture"],
+    "description": "Исторические склады XIX века у реки."
+  },
+  {
+    "id": "maksimilian",
+    "name": "Ресторан Максимилиан",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2225,
+    "lon": 39.7244,
+    "tags": ["food", "local"],
+    "description": "Кубанская кухня и локальные деликатесы."
+  },
+  {
+    "id": "coffee-lab",
+    "name": "Coffee Lab",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2209,
+    "lon": 39.7248,
+    "tags": ["coffee", "food"],
+    "description": "Спешелти-кофе и десерты."
+  },
+  {
+    "id": "theatre-square",
+    "name": "Театральная площадь",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2220,
+    "lon": 39.7118,
+    "tags": ["architecture", "walk"],
+    "description": "Главная площадь города с фонтанами."
+  },
+  {
+    "id": "don-river-cruise",
+    "name": "Причал речных прогулок",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2146,
+    "lon": 39.7129,
+    "tags": ["nature", "walk", "boat"],
+    "description": "Отсюда отправляются прогулочные теплоходы."
+  },
+  {
+    "id": "taganrog-embankment",
+    "name": "Таганрогская набережная",
+    "city": "Таганрог",
+    "lat": 47.2140,
+    "lon": 38.9368,
+    "tags": ["walk", "nature", "sea"],
+    "description": "Прогулки вдоль Азовского моря."
+  },
+  {
+    "id": "taganrog-chekhov-house",
+    "name": "Дом-музей Чехова",
+    "city": "Таганрог",
+    "lat": 47.2123,
+    "lon": 38.9410,
+    "tags": ["museum", "history"],
+    "description": "Музей, посвящённый Антону Чехову."
+  },
+  {
+    "id": "azov-kremlin",
+    "name": "Азовский музей-заповедник",
+    "city": "Азов",
+    "lat": 47.1078,
+    "lon": 39.4238,
+    "tags": ["history", "museum"],
+    "description": "Археология и история Азовской крепости."
+  },
+  {
+    "id": "azov-embankment",
+    "name": "Азовская набережная",
+    "city": "Азов",
+    "lat": 47.1096,
+    "lon": 39.4245,
+    "tags": ["walk", "nature"],
+    "description": "Вид на Дон и прогулочная зона."
+  },
+  {
+    "id": "rostov-cathedral",
+    "name": "Ростовский кафедральный собор",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2215,
+    "lon": 39.7158,
+    "tags": ["history", "architecture"],
+    "description": "Собор Рождества Пресвятой Богородицы."
+  },
+  {
+    "id": "megasport",
+    "name": "Гребной канал Дон",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2765,
+    "lon": 39.7560,
+    "tags": ["sport", "nature"],
+    "description": "Локация для активного отдыха у воды."
+  },
+  {
+    "id": "mercury-mall",
+    "name": "Ростовская набережная Фестивальная",
+    "city": "Ростов-на-Дону",
+    "lat": 47.2077,
+    "lon": 39.7014,
+    "tags": ["walk", "food"],
+    "description": "Зона ресторанов и арт-объектов у реки."
+  }
+]
