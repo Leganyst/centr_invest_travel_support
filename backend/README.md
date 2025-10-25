@@ -13,6 +13,12 @@
 - Docker: `docker compose -f ../deploy/docker-compose.yml up backend`
 - Локально: `pip install -r requirements.txt` → `uvicorn app:app --reload`
 
+### Фронтенд (Vite + React)
+- `cd frontend && npm install`
+- `npm run dev` для разработки (Vite dev server на `http://localhost:5173`)
+- `npm run build` для продакшена — бандл оказывается в `frontend/dist`, FastAPI раздаёт его по `GET /`
+- Публичный ключ MapGL (`MAPGL_PUBLIC_KEY`) возьмите в кабинете 2ГИС, добавьте origin `http://127.0.0.1:8000` и `http://localhost:8000` в ограничения. Для тестов можно указать `demo`.
+
 ## Примеры
 ```bash
 curl "http://localhost:8080/places?q=музей&lat=47.220&lon=39.720&radius=1500" | jq '.[0]'

@@ -1,0 +1,29 @@
+:root {
+  color-scheme: light;
+  font-family: "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg, #f3f4f6);
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+}

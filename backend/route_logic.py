@@ -109,6 +109,7 @@ def build_route(
                 "name": place["name"],
                 "lat": place["lat"],
                 "lon": place["lon"],
+                "description": place.get("description"),
                 "arrive": arrive_time.isoformat(),
                 "leave": leave_time.isoformat(),
                 "tags": place.get("tags", []),

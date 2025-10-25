@@ -43,7 +43,7 @@ def make_ics(
         arrive_local = _ensure_tz(arrive, tz)
         leave_local = _ensure_tz(leave, tz)
         summary = _escape(f"{idx}. {stop['name']}")
-        detail = description or ""
+        detail = description or stop.get("description") or ""
         if not detail:
             tag_line = ", ".join(stop.get("tags", []))
             detail = f"Теги: {tag_line}" if tag_line else "Маршрут по городу"

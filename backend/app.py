@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import json
+import datetime as dt
+from pathlib import Path
 from typing import Any, List, Tuple
 
 from fastapi import FastAPI, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import ics_utils
@@ -14,10 +17,14 @@ import route_logic
 import seed_loader
 from config import Settings
 from llm_client import LLMClient
-from tags_vocab import normalize_tags
+from tags_vocab import allowed_tags, normalize_tags
 from two_gis_client import fetch_places_by_radius, is_enabled as dgis_is_enabled
 
 DEFAULT_CITY = "Ростов-на-Дону"
+BASE_DIR = Path(__file__).parent
+FRONTEND_DIR = BASE_DIR / "frontend"
+DIST_DIR = FRONTEND_DIR / "dist"
+ASSETS_DIR = DIST_DIR / "assets"
 TAG_QUERY_MAP = {
     "history": "исторические места",
     "museum": "музей",
@@ -35,6 +42,42 @@ app = FastAPI(title="Rostov Day Trip Planner")
 settings = Settings.load()
 llm_client = LLMClient(settings)
 SEED_PLACES = seed_loader.load_seed()
+
+if ASSETS_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="frontend-assets")
+
+FAVICON_PATH = DIST_DIR / "favicon.svg"
+
+
+@app.get("/", include_in_schema=False, response_class=HTMLResponse)
+def serve_frontend() -> HTMLResponse:
+    """Return the single-page frontend shell."""
+    index_path = DIST_DIR / "index.html"
+    if not index_path.exists():
+        return HTMLResponse(
+            "<h1>Frontend не собран.</h1><p>Выполните `npm install` и `npm run build` в каталоге frontend.</p>",
+            status_code=404,
+        )
+
+    config_payload = json.dumps(
+        {
+            "mapglKey": settings.mapgl_public_key or "",
+            "defaultCity": DEFAULT_CITY,
+            "allowedTags": allowed_tags(),
+            "llmEnabled": settings.llm_enabled,
+        },
+        ensure_ascii=False,
+    )
+    content = index_path.read_text(encoding="utf-8").replace("__APP_CONFIG__", config_payload)
+    return HTMLResponse(content)
+
+
+@app.get("/favicon.{ext}", include_in_schema=False)
+def serve_favicon(ext: str) -> FileResponse | HTMLResponse:
+    if FAVICON_PATH.exists():
+        media_type = "image/svg+xml" if ext == "svg" else "image/x-icon"
+        return FileResponse(FAVICON_PATH, media_type=media_type)
+    return HTMLResponse(status_code=204)
 
 
 class Geo(BaseModel):
@@ -55,7 +98,7 @@ class PlanRequest(BaseModel):
         default=DEFAULT_CITY,
         description="Город по умолчанию, если геопозиция не передана",
     )
-    date: date = Field(description="Дата поездки, ISO формат YYYY-MM-DD")
+    date: dt.date = Field(description="Дата поездки, ISO формат YYYY-MM-DD")
     tags: List[str] = Field(
         default_factory=list,
         description="Интересы пользователя. Мапятся на канонические теги через словарь",
@@ -86,6 +129,10 @@ class Stop(BaseModel):
     name: str = Field(description="Название места")
     lat: float = Field(description="Широта точки")
     lon: float = Field(description="Долгота точки")
+    description: str | None = Field(
+        default=None,
+        description="Краткое описание остановки",
+    )
     arrive: str = Field(description="Время прибытия (ISO8601)")
     leave: str = Field(description="Время окончания посещения (ISO8601)")
     tags: List[str] = Field(default_factory=list, description="Канонические теги места")
@@ -99,6 +146,14 @@ class PlanResponse(BaseModel):
     total_minutes: int = Field(description="Продолжительность маршрута в минутах")
     ics: str = Field(
         description="Содержимое ICS-файла (Europe/Moscow, с описанием остановок)"
+    )
+    data_source: str = Field(
+        default="seed",
+        description="Источник данных для мест (seed или 2gis)",
+    )
+    optimized: bool = Field(
+        default=True,
+        description="Маршрут оптимизирован эвристикой построения порядка",
     )
 
 
@@ -193,8 +248,9 @@ def _build_plan(payload: PlanRequest) -> tuple[PlanResponse, str]:
         if dynamic_places
         else SEED_PLACES
     )
+    data_source = "2gis" if dynamic_places else "seed"
 
-    planning_date = datetime.combine(payload.date, datetime.min.time())
+    planning_date = dt.datetime.combine(payload.date, dt.datetime.min.time())
     route = route_logic.build_route(
         payload.city or DEFAULT_CITY,
         planning_date,
@@ -217,6 +273,8 @@ def _build_plan(payload: PlanRequest) -> tuple[PlanResponse, str]:
         total_time=route["total_time_human"],
         total_minutes=route["total_minutes"],
         ics=ics_payload,
+        data_source=data_source,
+        optimized=True,
     )
     return plan, ics_payload
 

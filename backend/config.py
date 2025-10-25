@@ -20,6 +20,7 @@ class Settings:
     llm_api_base: str | None
     llm_api_key: str | None
     llm_model: str | None
+    mapgl_public_key: str | None
 
     @classmethod
     def load(cls) -> "Settings":
@@ -36,6 +37,7 @@ class Settings:
             llm_api_base=os.getenv("LLM_API_BASE"),
             llm_api_key=os.getenv("LLM_API_KEY"),
             llm_model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
+            mapgl_public_key=os.getenv("MAPGL_PUBLIC_KEY"),
         )
 
     @property
