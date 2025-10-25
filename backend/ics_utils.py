@@ -34,7 +34,7 @@ def make_ics(
     """Return ICS payload with timezone metadata and optional description."""
 
     tz = ZoneInfo(tzid)
-    header = HEADER_TEMPLATE.format(title=title, tzid=tzid)
+    header = HEADER_TEMPLATE.format(title=_escape(title), tzid=tzid)
     now_utc = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     events = []
     for idx, stop in enumerate(stops, start=1):
@@ -42,11 +42,12 @@ def make_ics(
         leave = _parse_iso(stop["leave"])
         arrive_local = _ensure_tz(arrive, tz)
         leave_local = _ensure_tz(leave, tz)
-        summary = f"{idx}. {stop['name']}"
+        summary = _escape(f"{idx}. {stop['name']}")
         detail = description or ""
         if not detail:
             tag_line = ", ".join(stop.get("tags", []))
             detail = f"Теги: {tag_line}" if tag_line else "Маршрут по городу"
+        detail = _escape(detail)
         event = "\n".join(
             [
                 "BEGIN:VEVENT",
@@ -75,3 +76,12 @@ def _ensure_tz(dt: datetime, tz: ZoneInfo) -> datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=tz)
     return dt.astimezone(tz)
+
+
+def _escape(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace(";", "\\;")
+        .replace(",", "\\,")
+        .replace("\n", "\\n")
+    )

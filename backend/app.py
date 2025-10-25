@@ -6,6 +6,7 @@ from datetime import date, datetime
 from typing import Any, List, Tuple
 
 from fastapi import FastAPI, Query
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 import ics_utils
@@ -13,7 +14,7 @@ import route_logic
 import seed_loader
 from config import Settings
 from llm_client import LLMClient
-from tags_vocab import allowed_tags, normalize_tags
+from tags_vocab import normalize_tags
 from two_gis_client import fetch_places_by_radius, is_enabled as dgis_is_enabled
 
 DEFAULT_CITY = "Ростов-на-Дону"
@@ -96,7 +97,9 @@ class PlanResponse(BaseModel):
     stops: List[Stop] = Field(description="Последовательность остановок на день")
     total_time: str = Field(description="Человекочитаемая длительность всего маршрута")
     total_minutes: int = Field(description="Продолжительность маршрута в минутах")
-    ics: str = Field(description="Содержимое ICS-файла, который можно сохранить в календарь")
+    ics: str = Field(
+        description="Содержимое ICS-файла (Europe/Moscow, с описанием остановок)"
+    )
 
 
 class ConversationRequest(BaseModel):
@@ -155,23 +158,16 @@ def list_places(
     return results[:limit]
 
 
-@app.post(
-    "/plan",
-    response_model=PlanResponse,
-    summary="Построение однодневного маршрута",
-    description=(
-        "1) Определяем точку старта (геопозиция пользователя или центр города).\n"
-        "2) Запрашиваем объекты 2ГИС по радиусу (кэшируется на сутки).\n"
-        "3) Объединяем данные с сидовым набором и нормализуем теги.\n"
-        "4) Выбираем до 7 релевантных мест по тегам, упорядочиваем ближайшим соседом,"
-        " добавляя дорогу (haversine) и длительность посещения по типу места.\n"
-        "5) Возвращаем последовательность остановок, суммарное время и ICS для календаря."
-    ),
-)
-def plan_trip(payload: PlanRequest) -> PlanResponse:
+def _build_plan(payload: PlanRequest) -> tuple[PlanResponse, str]:
+    """Generalised планер, используемый JSON- и ICS-эндпоинтами."""
+
     user_tags = normalize_tags(payload.tags)
     radius_m = _clamp_radius(payload.radius_m)
-    start_location = (payload.user_location.lat, payload.user_location.lon) if payload.user_location else None
+    start_location = (
+        (payload.user_location.lat, payload.user_location.lon)
+        if payload.user_location
+        else None
+    )
     search_point = _point_for_search(
         payload.user_location.lat if payload.user_location else None,
         payload.user_location.lon if payload.user_location else None,
@@ -207,13 +203,58 @@ def plan_trip(payload: PlanRequest) -> PlanResponse:
         start_location=start_location,
     )
 
-    ics_payload = ics_utils.make_ics(route["stops"], title=f"Маршрут: {payload.city or DEFAULT_CITY}")
+    description = (
+        f"Маршрут на {payload.date.isoformat()} — {len(route['stops'])} остановок."
+    )
+    ics_payload = ics_utils.make_ics(
+        route["stops"],
+        title=f"Маршрут: {payload.city or DEFAULT_CITY}",
+        description=description,
+    )
 
-    return PlanResponse(
+    plan = PlanResponse(
         stops=[Stop(**stop) for stop in route["stops"]],
         total_time=route["total_time_human"],
         total_minutes=route["total_minutes"],
         ics=ics_payload,
+    )
+    return plan, ics_payload
+
+
+@app.post(
+    "/plan",
+    response_model=PlanResponse,
+    summary="Построение однодневного маршрута",
+    description=(
+        "1) Определяем точку старта (геопозиция пользователя или центр города).\n"
+        "2) Запрашиваем объекты 2ГИС по радиусу (кэшируется на сутки).\n"
+        "3) Объединяем данные с сидовым набором и нормализуем теги.\n"
+        "4) Выбираем до 7 релевантных мест по тегам, упорядочиваем ближайшим соседом,"
+        " добавляя дорогу (haversine) и длительность посещения по типу места.\n"
+        "5) Возвращаем последовательность остановок, суммарное время и ICS для календаря."
+    ),
+)
+def plan_trip(payload: PlanRequest) -> PlanResponse:
+    plan, _ = _build_plan(payload)
+    return plan
+
+
+@app.post(
+    "/plan/ics",
+    summary="Построение маршрута с выгрузкой ICS",
+    description=(
+        "Повторяет логику `/plan`, но возвращает готовый файл `.ics` с таймзоной"
+        " (Europe/Moscow) и описанием остановок."
+    ),
+    response_class=Response,
+)
+def plan_trip_ics(payload: PlanRequest) -> Response:
+    _, ics_payload = _build_plan(payload)
+    filename = f"route_{payload.date.isoformat()}.ics"
+    return Response(
+        content=ics_payload,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
