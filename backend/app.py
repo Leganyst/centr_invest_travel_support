@@ -43,8 +43,11 @@ settings = Settings.load()
 llm_client = LLMClient(settings)
 SEED_PLACES = seed_loader.load_seed()
 
-if ASSETS_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=ASSETS_DIR), name="frontend-assets")
+app.mount(
+    "/assets",
+    StaticFiles(directory=ASSETS_DIR, check_dir=False),
+    name="frontend-assets",
+)
 
 FAVICON_PATH = DIST_DIR / "favicon.svg"
 
