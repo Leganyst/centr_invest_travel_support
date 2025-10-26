@@ -222,6 +222,39 @@
       .join("");
   }
 
+  function describeOrigin(origin) {
+    if (!origin) {
+      return "Старт: центр города (по умолчанию)";
+    }
+    const lat = Number(origin.lat);
+    const lon = Number(origin.lon);
+    const coordText =
+      Number.isFinite(lat) && Number.isFinite(lon)
+        ? `${lat.toFixed(5)}, ${lon.toFixed(5)}`
+        : "координаты недоступны";
+    const meta = [];
+    meta.push(`Старт: ${coordText}`);
+    if (origin.source === "geolocation") {
+      meta.push("моя геолокация");
+    } else if (origin.source === "map") {
+      meta.push("точка на карте");
+    } else if (origin.source) {
+      meta.push(String(origin.source));
+    }
+    if (Number.isFinite(origin.accuracy) && origin.accuracy > 0) {
+      meta.push(`±${Math.round(origin.accuracy)} м`);
+    }
+    return meta.join(" · ");
+  }
+
+  function updateOriginIndicator(origin) {
+    if (!elements.originLabel) return;
+    elements.originLabel.textContent = describeOrigin(origin);
+    if (elements.clearOriginButton) {
+      elements.clearOriginButton.disabled = !origin;
+    }
+  }
+
   function populateTags(tags) {
     const form = elements.prefsForm;
     if (!form || !Array.isArray(tags)) return;
@@ -300,6 +333,21 @@
       handlers.onChatOpen?.();
     });
 
+    elements.pickOriginButton?.addEventListener("click", () => {
+      console.log("[UI] Запрошена установка старта на карте");
+      handlers.onPickOrigin?.();
+    });
+
+    elements.geolocateOriginButton?.addEventListener("click", () => {
+      console.log("[UI] Запрошена установка старта по геолокации");
+      handlers.onUseGeolocation?.();
+    });
+
+    elements.clearOriginButton?.addEventListener("click", () => {
+      console.log("[UI] Запрошен сброс старта");
+      handlers.onClearOrigin?.();
+    });
+
     elements.prefsModal?.addEventListener("close", () => {
       if (elements.prefsModal.returnValue === "default") {
         const prefs = getPrefsFromForm();
@@ -324,6 +372,7 @@
     syncPreferences,
     scrollRouteList,
     populateTags,
+    updateOriginIndicator,
     setStateGetter(fn) {
       if (typeof fn === "function") {
         getState = fn;

@@ -80,6 +80,17 @@ body{
 }
 [data-controls] .btn:active{ transform:translateY(1px); }
 
+.origin-panel{
+  margin:var(--app-pad);
+  padding:var(--app-pad);
+}
+.origin-actions{
+  flex-direction:column;
+}
+.origin-actions .origin-action{
+  width:100%;
+}
+
 /* ===== Toast stack (центр, сверху) ===== */
 .toast-stack{ position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 12px); display:grid; place-items:center; gap:8px; z-index:50; pointer-events:none; }
 .toast{ pointer-events:auto; background:Canvas; color:CanvasText; border-radius:12px; box-shadow:var(--elev-1); padding:10px 12px; max-width:min(92vw, 520px); }

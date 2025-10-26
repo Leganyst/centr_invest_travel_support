@@ -46,6 +46,7 @@
     routePlan: null,
     prefs: { city: "Ростов-на-Дону", tags: [], budget: "low", pace: "normal" },
     userLocation: { ...DEFAULT_USER_LOCATION },
+    origin: null,
   };
 
   let mapApi = null;
@@ -69,6 +70,93 @@
       accuracy: location.accuracy ?? null,
       timestamp: location.timestamp ?? Date.now(),
     };
+  }
+
+  function normalizeOrigin(point) {
+    if (!point || point.lat == null || point.lon == null) {
+      return null;
+    }
+    const lat = Number(point.lat);
+    const lon = Number(point.lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
+    }
+    const accuracyRaw = point.accuracy ?? point.accuracy_m ?? null;
+    const accuracyNum = accuracyRaw == null ? null : Number(accuracyRaw);
+    return {
+      lat,
+      lon,
+      accuracy: Number.isFinite(accuracyNum) ? accuracyNum : null,
+      source: point.source || null,
+    };
+  }
+
+  function setOrigin(point, options = {}) {
+    const normalized = normalizeOrigin(point);
+    if (!normalized) {
+      appState.origin = null;
+      if (mapApi?.clearOrigin) {
+        mapApi.clearOrigin();
+      }
+      global.UI.updateOriginIndicator(null);
+      if (options.toast) {
+        global.UI.showToast("Старт сброшен, используется центр города", 2400);
+      }
+      return;
+    }
+
+    appState.origin = normalized;
+    if (options.updateMap !== false && mapApi?.setOrigin) {
+      mapApi.setOrigin({ lat: normalized.lat, lon: normalized.lon });
+    }
+    if (options.center && mapApi?.fitTo) {
+      mapApi.fitTo([{ lat: normalized.lat, lon: normalized.lon }]);
+    }
+    global.UI.updateOriginIndicator(normalized);
+    if (options.toast) {
+      let label = "точка на карте";
+      if (normalized.source === "geolocation") {
+        label = "геолокация";
+      } else if (normalized.source && normalized.source !== "map") {
+        label = normalized.source;
+      }
+      global.UI.showToast(`Старт обновлён: ${label}`, 2400);
+    }
+  }
+
+  function clearOrigin() {
+    setOrigin(null, { toast: false });
+  }
+
+  async function setOriginFromGeolocation(options = {}) {
+    const location = await requestUserLocation();
+    if (!location) {
+      if (!options.silent) {
+        global.UI.showToast("Не удалось определить вашу геолокацию", 2600);
+      }
+      return null;
+    }
+
+    mergeUserLocation(location);
+    if (mapApi?.setUserLocation) {
+      mapApi.setUserLocation(appState.userLocation, { center: options.center !== false });
+    }
+
+    setOrigin(
+      { lat: location.lat, lon: location.lon, accuracy: location.accuracy, source: "geolocation" },
+      { toast: !options.silent }
+    );
+    return appState.origin;
+  }
+
+  async function ensureOriginForRouting() {
+    if (appState.origin) {
+      if (appState.origin.source === "geolocation" && appState.userLocation && mapApi?.setUserLocation) {
+        mapApi.setUserLocation(appState.userLocation, { center: false });
+      }
+      return appState.origin;
+    }
+    return setOriginFromGeolocation({ silent: true, center: true });
   }
 
   function requestUserLocation() {
@@ -155,16 +243,12 @@
       return;
     }
     isBuilding = true;
-    global.UI.showToast("Запрашиваем геолокацию…", 2000);
 
     try {
-      const location = await requestUserLocation();
-      if (location) {
-        mergeUserLocation(location);
-        mapApi.setUserLocation(appState.userLocation, { center: true });
-      } else if (appState.userLocation) {
-        mapApi.setUserLocation(appState.userLocation, { center: true });
+      if (!appState.origin) {
+        global.UI.showToast("Пробуем определить стартовую точку…", 2200);
       }
+      const originPoint = await ensureOriginForRouting();
 
       global.UI.showToast("Запрашиваем маршрут у сервера…", 2000);
 
@@ -174,25 +258,17 @@
       const requestPayload = {
         date: new Date().toISOString().slice(0, 10),
         city: appState.prefs.city || "Ростов-на-Дону",
-        tags: canonTags, // <-- отправляем канонические значения
+        tags: canonTags,
         budget: appState.prefs.budget || null,
         pace: appState.prefs.pace || null,
       };
 
-      // user_location: координаты — как есть (полная точность),
-      // accuracy_m — ТОЛЬКО целое (backend ожидает int)
-      if (
-        appState.userLocation &&
-        appState.userLocation.lat != null &&
-        appState.userLocation.lon != null
-      ) {
+      if (originPoint) {
         requestPayload.user_location = {
-          lat: appState.userLocation.lat,
-          lon: appState.userLocation.lon,
+          lat: originPoint.lat,
+          lon: originPoint.lon,
           accuracy_m:
-            typeof appState.userLocation.accuracy === "number"
-              ? Math.round(appState.userLocation.accuracy)
-              : null,
+            typeof originPoint.accuracy === "number" ? Math.round(originPoint.accuracy) : null,
         };
       }
 
@@ -218,7 +294,7 @@
       let effectivePoints = TEST_POINTS;
 
       if (planData && Array.isArray(planData.stops) && planData.stops.length) {
-        const limitedStops = planData.stops.slice(0, 10); // лимит на уровне клиента тоже
+        const limitedStops = planData.stops.slice(0, 10);
         appState.routePlan = { ...planData, stops: limitedStops };
 
         effectivePoints = limitedStops
@@ -263,19 +339,27 @@
       }
 
       appState.points = effectivePoints.length ? effectivePoints : TEST_POINTS;
-
       mapApi.setMarkers(appState.points);
-      const pointsToFit = appState.userLocation
-        ? [...appState.points, appState.userLocation]
-        : [...appState.points];
-      mapApi.fitTo(pointsToFit);
 
-      if (appState.points.length >= 2) {
-        const route = await mapApi.buildPedestrianRoute(appState.points);
+      const fitPoints = [...appState.points];
+      if (appState.origin) {
+        fitPoints.push({ lat: appState.origin.lat, lon: appState.origin.lon });
+      } else if (appState.userLocation) {
+        fitPoints.push(appState.userLocation);
+      }
+      if (fitPoints.length) {
+        mapApi.fitTo(fitPoints);
+      }
+
+      const routePoints = appState.origin
+        ? [{ lat: appState.origin.lat, lon: appState.origin.lon }, ...appState.points]
+        : [...appState.points];
+
+      if (routePoints.length >= 2) {
+        const route = await mapApi.buildPedestrianRoute(routePoints);
         appState.route = route;
 
-        // [MOBILE] Сообщаем, что маршрут готов → раскрыть шторку
-        document.dispatchEvent(new CustomEvent('app:route-ready'));
+        document.dispatchEvent(new CustomEvent("app:route-ready"));
         if (route.usedFallback && planData) {
           global.UI.showToast(
             "Не удалось построить точный маршрут на карте, показан приблизительный",
@@ -305,15 +389,39 @@
       global.UI.showToast("Сначала постройте маршрут");
       return;
     }
-    const pointsToFit = appState.userLocation
-      ? [...appState.points, appState.userLocation]
-      : [...appState.points];
+    const pointsToFit = [...appState.points];
+    if (appState.origin) {
+      pointsToFit.push({ lat: appState.origin.lat, lon: appState.origin.lon });
+    } else if (appState.userLocation) {
+      pointsToFit.push(appState.userLocation);
+    }
     mapApi.fitTo(pointsToFit);
     global.UI.scrollRouteList();
 
     // [MOBILE] Раскрываем список на мобиле + событие
     if (global.MobileUI) global.MobileUI.expandSheet();
     document.dispatchEvent(new CustomEvent('app:view-route'));
+  }
+
+  function handlePickOrigin() {
+    if (!mapApi || !mapApi.pickOriginOnMap) {
+      global.UI.showToast("Карта ещё не готова", 2200);
+      return;
+    }
+    mapApi.pickOriginOnMap();
+  }
+
+  async function handleUseGeolocationForOrigin() {
+    await setOriginFromGeolocation({ silent: false, center: true });
+  }
+
+  function handleClearOrigin() {
+    if (!appState.origin) {
+      global.UI.showToast("Старт уже сброшен", 2000);
+      return;
+    }
+    clearOrigin();
+    global.UI.showToast("Стартовая точка сброшена", 2000);
   }
 
   function handlePreferencesChange(prefs) {
@@ -332,8 +440,11 @@
     }
     try {
       mapApi = global.FrontendMap.initMap({ mapKey, directionsKey });
-      if (appState.userLocation) {
-        mapApi.setUserLocation(appState.userLocation, { center: true });
+      if (appState.origin) {
+        mapApi.setOrigin({ lat: appState.origin.lat, lon: appState.origin.lon });
+      }
+      if (appState.userLocation && appState.origin?.source === "geolocation") {
+        mapApi.setUserLocation(appState.userLocation, { center: false });
       }
     } catch (error) {
       console.error("[App] Ошибка инициализации карты:", error);
@@ -351,6 +462,7 @@
     loadCanonicalTags();
     global.UI.setStateGetter(() => appState);
     global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
+    global.UI.updateOriginIndicator(appState.origin);
 
     // [MOBILE] Инициализируем мобильные улучшения
     if (global.MobileUI) {
@@ -363,10 +475,22 @@
       }
     }
 
+    document.addEventListener("map:origin-changed", (event) => {
+      const detail = event.detail || {};
+      const lat = Number(detail.lat);
+      const lon = Number(detail.lon);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) {
+        setOrigin({ lat, lon, source: "map" }, { updateMap: false, toast: false });
+      }
+    });
+
     global.UI.init({
       onBuildRoute: handleBuildRoute,
       onExplain: handleExplain,
       onViewRoute: handleViewRoute,
+      onPickOrigin: handlePickOrigin,
+      onUseGeolocation: handleUseGeolocationForOrigin,
+      onClearOrigin: handleClearOrigin,
       onPreferencesChange: handlePreferencesChange,
       onChatOpen: () => {
         // Placeholder for future chat integration
