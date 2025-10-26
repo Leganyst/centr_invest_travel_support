@@ -125,6 +125,7 @@ class Stop(BaseModel):
     arrive: str = Field(description="Время прибытия (ISO8601)")
     leave: str = Field(description="Время окончания посещения (ISO8601)")
     tags: List[str] = Field(default_factory=list, description="Канонические теги места")
+    description: str | None = Field(default=None, description="Короткое описание места")
 
 
 class PlanResponse(BaseModel):

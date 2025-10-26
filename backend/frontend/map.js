@@ -76,27 +76,37 @@
     }
   }
 
-  function addMarker({ lon, lat, title, desc }) {
+  function addMarker({ lon, lat, title, desc, idx }) {
     ensureMapInstance();
     if (!global.mapgl) return null;
 
     const lonlat = toLonLat({ lon, lat });
     if (!lonlat) return null;
 
+    const safeTitle = String(title || "Точка");
+    const labelText = (typeof idx === "number" && Number.isFinite(idx))
+      ? `${idx}. ${safeTitle}`
+      : safeTitle;
+
     try {
-      // Подписи у маркеров — через опцию label (Marker with text)
       const marker = new global.mapgl.Marker(mapInstance, {
         coordinates: lonlat,
         label: {
-          text: String(title || "Точка"),
-          // расположение подписи относительно иконки
+          text: labelText,               // <-- метка сразу с номером
           relativeAnchor: [0.5, 1.15],
           offset: [0, -6],
         },
       });
 
+      // сохраним мету, пригодится для фокуса/клика из списка
+      marker._meta = { idx, title: safeTitle, desc: String(desc || ""), lonlat };
+
       marker.on("click", () => {
-        const message = desc ? `${title}: ${desc}` : String(title || "Точка");
+        const n = marker._meta?.idx;
+        const head = (Number.isFinite(n) ? `#${n} ` : "") + (marker._meta?.title || "Точка");
+        const message = marker._meta?.desc
+          ? `${head}: ${marker._meta.desc}`
+          : head;
         if (global.UI?.showToast) {
           global.UI.showToast(message, 4200);
         } else {
@@ -111,6 +121,7 @@
       return null;
     }
   }
+
 
   function clearMarkers() {
     for (const marker of markerInstances) {
@@ -186,9 +197,27 @@
     }
   }
 
-  function setMarkers(points) {
+  function setMarkers(pointsOrStops) {
     clearMarkers();
-    for (const p of points) addMarker(p);
+    const items = Array.isArray(pointsOrStops) ? pointsOrStops : [];
+    let idx = 1;
+
+    for (const it of items) {
+      // поддерживаем оба формата
+      const isStop = it && (typeof it.name === "string" || typeof it.description === "string");
+      const title = isStop ? it.name : it.title;
+      const desc  = isStop ? it.description : it.desc;
+
+      addMarker({
+        lon: it.lon,
+        lat: it.lat,
+        title,
+        desc,
+        idx,           // <--- синхронизированная нумерация
+      });
+
+      idx += 1;
+    }
   }
 
   function setCenter([lon, lat]) {
@@ -233,6 +262,79 @@
       logError("fitTo", error);
     }
   }
+/* ------------------------ UI list (stops) ------------------------ */
+function _escapeHtml(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function focusMarker(idx, options = {}) {
+  ensureMapInstance();
+  const { pan = true, openToast = false } = options;
+  const m = markerInstances[idx - 1]; // idx у нас 1..N
+  if (!m) return;
+
+  try {
+    const coords = m.getCoordinates ? m.getCoordinates() : (m._meta?.lonlat);
+    if (pan && coords) {
+      setCenter(coords);
+    }
+    if (openToast) {
+      const n = m._meta?.idx;
+      const head = (Number.isFinite(n) ? `#${n} ` : "") + (m._meta?.title || "Точка");
+      const message = m._meta?.desc ? `${head}: ${m._meta.desc}` : head;
+      if (global.UI?.showToast) global.UI.showToast(message, 3600);
+    }
+  } catch (e) {
+    logError("focusMarker", e);
+  }
+}
+
+/**
+ * Рендерит список остановок с той же нумерацией, что и на карте.
+ * @param {string|HTMLElement} containerOrId - контейнер списка
+ * @param {Array} stops - stops из /plan (порядок уже отсортирован бэком)
+ */
+function renderStopList(containerOrId, stops = []) {
+  const el = typeof containerOrId === "string"
+    ? document.getElementById(containerOrId)
+    : containerOrId;
+
+  if (!el) return;
+
+  const parts = [];
+  parts.push('<ol class="stop-list">');
+  for (let i = 0; i < stops.length; i += 1) {
+    const n = i + 1;
+    const s = stops[i] || {};
+    const name = _escapeHtml(s.name || `Точка ${n}`);
+    const desc = _escapeHtml(s.description || "");
+    parts.push(`
+      <li class="stop-item" data-idx="${n}">
+        <div class="stop-head">
+          <span class="stop-num">${n}</span>
+          <span class="stop-title">${name}</span>
+        </div>
+        ${desc ? `<div class="stop-desc">${desc}</div>` : ""}
+      </li>
+    `);
+  }
+  parts.push("</ol>");
+
+  el.innerHTML = parts.join("");
+
+  // клики по пунктам — фокусируем соответствующий маркер
+  el.querySelectorAll(".stop-item").forEach((li) => {
+    li.addEventListener("click", () => {
+      const idx = Number(li.getAttribute("data-idx"));
+      focusMarker(idx, { pan: true, openToast: true });
+    });
+  });
+}
 
   /* ------------------------ Directions (2ГИС) ------------------------ */
   async function ensureDirections() {
@@ -358,12 +460,16 @@
     return {
       setCenter,
       addMarker,
-      setMarkers,
+      setMarkers,        // теперь с нумерацией
       clearMarkers,
       setUserLocation,
       fitTo,
       buildPedestrianRoute,
+      // новое:
+      renderStopList,
+      focusMarker,
     };
+
   }
 
   global.FrontendMap = { initMap };

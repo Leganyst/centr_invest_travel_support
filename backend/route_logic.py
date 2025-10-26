@@ -323,6 +323,7 @@ def build_route(
                 "tags": place.get("tags", []),
                 "distance_km_from_prev": round(distance_km, 2),
                 "travel_min_from_prev": travel_minutes,
+                "description": place.get("description") or "",
             }
         )
 

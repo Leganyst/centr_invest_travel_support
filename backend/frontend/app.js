@@ -273,6 +273,9 @@
       if (appState.points.length >= 2) {
         const route = await mapApi.buildPedestrianRoute(appState.points);
         appState.route = route;
+
+        // [MOBILE] Сообщаем, что маршрут готов → раскрыть шторку
+        document.dispatchEvent(new CustomEvent('app:route-ready'));
         if (route.usedFallback && planData) {
           global.UI.showToast(
             "Не удалось построить точный маршрут на карте, показан приблизительный",
@@ -307,6 +310,10 @@
       : [...appState.points];
     mapApi.fitTo(pointsToFit);
     global.UI.scrollRouteList();
+
+    // [MOBILE] Раскрываем список на мобиле + событие
+    if (global.MobileUI) global.MobileUI.expandSheet();
+    document.dispatchEvent(new CustomEvent('app:view-route'));
   }
 
   function handlePreferencesChange(prefs) {
@@ -344,6 +351,18 @@
     loadCanonicalTags();
     global.UI.setStateGetter(() => appState);
     global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
+
+    // [MOBILE] Инициализируем мобильные улучшения
+    if (global.MobileUI) {
+      global.MobileUI.init();
+
+      // Необязательный мост: отправлять тосты через MobileUI, чтобы они
+      // попадали в единый стек и аккуратно располагались под safe-area.
+      if (global.UI && typeof global.UI.showToast === 'function') {
+        global.UI.showToast = (m, ms) => global.MobileUI.showToast(m, ms);
+      }
+    }
+
     global.UI.init({
       onBuildRoute: handleBuildRoute,
       onExplain: handleExplain,

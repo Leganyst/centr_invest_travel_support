@@ -1,0 +1,108 @@
+/* ===== Mobile-first layout & tokens ===== */
+:root{
+  --app-pad:12px;           /* базовые отступы */
+  --fab-h:56px;             /* высота нижней панели */
+  --radius:16px;            /* скругления */
+  --sheet-peek:38vh;        /* «приоткрыто» на мобиле */
+  --sheet-max:78vh;         /* максимум высоты шторки */
+  --elev-1:0 4px 16px rgba(0,0,0,.15);
+  color-scheme: light dark;
+}
+
+html,body{height:100%;}
+body{
+  margin:0;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  background:Canvas; color:CanvasText;
+}
+*{box-sizing:border-box;}
+:focus-visible{outline:2px solid Highlight; outline-offset:2px;}
+
+/* iOS safe areas */
+.safe-bottom{padding-bottom:calc(env(safe-area-inset-bottom) + var(--app-pad));}
+.safe-top{padding-top:calc(env(safe-area-inset-top) + var(--app-pad));}
+
+/* ===== App grid ===== */
+[data-app]{
+  height:100dvh; /* мобильные браузеры */
+  display:grid;
+  grid-template-rows:1fr;
+  overflow:hidden;
+  background:color-mix(in srgb, Canvas 92%, transparent);
+}
+
+/* Карта занимает всё, список — шторка поверх */
+[data-map]{position:relative; min-height:100%;}
+
+/* ===== Bottom sheet (мобильный список маршрута) ===== */
+[data-route-list]{
+  position:fixed; left:0; right:0; bottom:0;
+  max-height:var(--sheet-max);
+  transform:translateY(calc(100% - var(--sheet-peek)));
+  background:Canvas; box-shadow:var(--elev-1); border-radius:16px 16px 0 0;
+  transition:transform .28s cubic-bezier(.2,.8,.2,1);
+  display:flex; flex-direction:column; gap:8px;
+  z-index:30; /* поверх карты */
+}
+[data-route-list][data-state="expanded"]{ transform:translateY(0); }
+[data-route-list][data-state="hidden"]{ transform:translateY(100%); }
+
+/* Ручка для перетаскивания/таба */
+.sheet-handle{
+  align-self:center;
+  width:44px; height:28px; border:0; background:transparent; padding:8px 0 0; cursor:pointer;
+}
+.sheet-handle::before{
+  content:""; display:block; width:36px; height:4px; border-radius:4px;
+  background:color-mix(in srgb, CanvasText 30%, transparent);
+  margin:auto; opacity:.6;
+}
+
+/* Внутри списка маршрута */
+[data-route-list] .route-header{ display:flex; align-items:center; gap:8px; padding:8px var(--app-pad) 0; }
+[data-route-list] .route-body{ overflow:auto; padding:4px var(--app-pad) calc(var(--fab-h) + env(safe-area-inset-bottom) + 12px); }
+
+/* ===== FAB-панель снизу ===== */
+[data-controls]{
+  position:fixed; left:var(--app-pad); right:var(--app-pad);
+  bottom:calc(env(safe-area-inset-bottom) + 8px);
+  display:flex; gap:8px; justify-content:space-between; align-items:center;
+  background:Canvas; border-radius:calc(var(--radius) + 4px);
+  box-shadow:var(--elev-1); padding:8px; z-index:40;
+}
+[data-controls] .btn{
+  flex:1; min-height:44px; padding:10px 12px; border-radius:12px;
+  border:1px solid color-mix(in srgb, CanvasText 12%, transparent);
+  background:color-mix(in srgb, Canvas 95%, transparent);
+  color:CanvasText; font-weight:600;
+}
+[data-controls] .btn:active{ transform:translateY(1px); }
+
+/* ===== Toast stack (центр, сверху) ===== */
+.toast-stack{ position:fixed; left:0; right:0; top:calc(env(safe-area-inset-top) + 12px); display:grid; place-items:center; gap:8px; z-index:50; pointer-events:none; }
+.toast{ pointer-events:auto; background:Canvas; color:CanvasText; border-radius:12px; box-shadow:var(--elev-1); padding:10px 12px; max-width:min(92vw, 520px); }
+
+/* ===== Breakpoints: планшеты/десктоп ===== */
+@media (min-width: 768px){
+  [data-app]{ grid-template-columns: 1fr 400px; }
+  [data-map]{ order:1; }
+  [data-route-list]{
+    position:static; transform:none; max-height:none; border-radius:0; box-shadow:none;
+    display:flex; flex-direction:column; z-index:10;
+  }
+  [data-controls]{ position:absolute; left:auto; right:16px; bottom:16px; width:320px; }
+  [data-route-list] .route-body{ padding:8px 12px 12px; }
+}
+
+/* Крупные экраны */
+@media (min-width: 1200px){
+  [data-app]{ grid-template-columns: 1fr 440px; }
+}
+
+/* Анимации уважают prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce){
+  *{scroll-behavior:auto !important;}
+  [data-route-list]{ transition:none; }
+}
