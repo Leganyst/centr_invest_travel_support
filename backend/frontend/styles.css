@@ -239,6 +239,11 @@ main {
   color: #475467;
 }
 
+.route-desc {
+  color: #1f2937;
+  font-size: 0.95rem;
+}
+
 .route-step {
   display: inline-flex;
   align-items: center;

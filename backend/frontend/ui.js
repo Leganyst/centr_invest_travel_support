@@ -207,10 +207,13 @@
         const leaveTime = formatTime(stopPlan?.leave);
         const stayMinutes = diffMinutes(stopPlan?.arrive, stopPlan?.leave);
         const tags = Array.isArray(stopPlan?.tags) && stopPlan.tags.length ? stopPlan.tags.join(", ") : null;
+        const description = typeof point.description === "string" && point.description.trim()
+          ? point.description.trim()
+          : (typeof point.desc === "string" ? point.desc : "");
         return `
           <article class="route-item">
             <h3><span class="route-step">${index + 1}</span>${escapeHtml(point.title || `Точка ${index + 1}`)}</h3>
-            ${point.desc ? `<p>${escapeHtml(point.desc)}</p>` : ""}
+            ${description ? `<p class="route-desc">${escapeHtml(description)}</p>` : ""}
             <p class="route-meta">Координаты: ${formatCoord(point.lat)}, ${formatCoord(point.lon)}</p>
             ${eta ? `<p class="route-meta">Переход от предыдущей точки ≈ ${eta} мин</p>` : ""}
             ${arriveTime || leaveTime ? `<p class="route-meta">${arriveTime ? `Прибытие ${arriveTime}` : ""}${arriveTime && leaveTime ? " · " : ""}${leaveTime ? `Отправление ${leaveTime}` : ""}</p>` : ""}

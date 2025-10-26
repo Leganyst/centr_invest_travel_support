@@ -311,16 +311,26 @@
 
             const arriveTime = formatTime(stop.arrive);
             const leaveTime = formatTime(stop.leave);
+            const descriptionText =
+              typeof stop.description === "string" && stop.description.trim()
+                ? stop.description.trim()
+                : "";
             const metaParts = [];
             if (arriveTime) metaParts.push(`Прибытие ${arriveTime}`);
             if (leaveTime) metaParts.push(`Отправление ${leaveTime}`);
             if (Array.isArray(stop.tags) && stop.tags.length) metaParts.push(stop.tags.join(", "));
+            const markerSummary = [descriptionText, ...metaParts].filter(Boolean).join(" · ");
+            const title =
+              (stop.name && String(stop.name).trim()) || `Точка ${index + 1}`;
 
             return ok
               ? {
                   id: index,
-                  title: (stop.name && String(stop.name)) || `Точка ${index + 1}`,
-                  desc: metaParts.join(" · ") || "",
+                  name: title,
+                  title,
+                  description: descriptionText || (metaParts.join(" · ") || ""),
+                  metaSummary: metaParts.join(" · ") || "",
+                  desc: markerSummary || descriptionText || metaParts.join(" · ") || "",
                   lat,
                   lon,
                   arrive: stop.arrive || null,
@@ -338,7 +348,43 @@
         appState.routePlan = null;
       }
 
-      appState.points = effectivePoints.length ? effectivePoints : TEST_POINTS;
+      const sourcePoints = effectivePoints.length ? effectivePoints : TEST_POINTS;
+      const hydratedPoints = sourcePoints.map((point, idx) => {
+        const base = { ...point };
+        const resolvedTitle =
+          (typeof base.title === "string" && base.title.trim()) ||
+          (typeof base.name === "string" && base.name.trim()) ||
+          `Точка ${idx + 1}`;
+        base.title = resolvedTitle;
+        if (!base.name) {
+          base.name = resolvedTitle;
+        }
+
+        const descriptionRaw =
+          typeof base.description === "string" ? base.description.trim() : "";
+        const descRaw = typeof base.desc === "string" ? base.desc.trim() : "";
+        if (descriptionRaw) {
+          base.description = descriptionRaw;
+        } else if (descRaw) {
+          base.description = descRaw;
+        } else {
+          base.description = "";
+        }
+
+        if (!descRaw) {
+          base.desc = base.description || "";
+        } else {
+          base.desc = descRaw;
+        }
+
+        if (typeof base.metaSummary !== "string") {
+          base.metaSummary = "";
+        }
+
+        return base;
+      });
+
+      appState.points = hydratedPoints;
       mapApi.setMarkers(appState.points);
 
       const fitPoints = [...appState.points];

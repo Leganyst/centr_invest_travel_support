@@ -310,8 +310,13 @@ def plan_trip(payload: dict) -> dict:
 
     # 1) Координаты пользователя (lon, lat!)
     user_loc = payload.get("user_location") or {}
-    user_lon = float(user_loc.get("lon"))
-    user_lat = float(user_loc.get("lat"))
+    user_lat = user_lon = None  # type: ignore[assignment]
+    try:
+        user_lon = float(user_loc["lon"])
+        user_lat = float(user_loc["lat"])
+    except (KeyError, TypeError, ValueError):
+        fallback_lat, fallback_lon = _starting_point(None, None, city=payload.get("city") or DEFAULT_CITY)
+        user_lat, user_lon = fallback_lat, fallback_lon
     user_point = (user_lon, user_lat)
 
     # 2) Канонические теги
@@ -518,6 +523,7 @@ def _build_schedule(
                 "arrive": arrive_time.isoformat(),
                 "leave": leave_time.isoformat(),
                 "tags": place.get("tags", []),
+                "description": place.get("description") or "",
             }
         )
 
