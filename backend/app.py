@@ -49,6 +49,7 @@ SEED_PLACES = seed_loader.load_seed()
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 
+logging.basicConfig(level=logging.INFO)  # поставить где-то при старте модуля
 log = logging.getLogger("boot")
 
 def _mask(v: str | None) -> str | None:
