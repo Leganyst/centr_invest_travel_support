@@ -14,6 +14,12 @@
   let directionsApiKey = null;
   let userLocationMarker = null;
   let userAccuracyCircle = null;
+  let originLonLat = null; // [lon, lat]
+  let originMarker = null;
+  let originControl = null;
+  let originControlButton = null;
+  let isPickingOrigin = false;
+  let originCursorToken = null;
 
   /* ------------------------ utils ------------------------ */
   function isFiniteNumber(v) {
@@ -130,6 +136,15 @@
     markerInstances = [];
   }
 
+  function clearOriginMarker() {
+    if (originMarker) {
+      try { originMarker.destroy(); } catch (e) { logError("Origin marker", e); }
+      originMarker = null;
+    }
+    originLonLat = null;
+    setOriginPickingState(false);
+  }
+
   function clearUserLocationMarker() {
     if (userLocationMarker) {
       try { userLocationMarker.destroy(); } catch (e) { logError("User marker", e); }
@@ -195,6 +210,117 @@
     if (options.center) {
       setCenter(lonlat);
     }
+  }
+
+  function setOriginPoint(point, options = {}) {
+    if (!point) return;
+    ensureMapInstance();
+
+    const lonlat = Array.isArray(point) ? point : toLonLat(point);
+    if (!lonlat) return;
+
+    originLonLat = lonlat;
+    setOriginPickingState(false);
+    try {
+      if (!originMarker) {
+        originMarker = new global.mapgl.Marker(mapInstance, {
+          coordinates: lonlat,
+          label: {
+            text: "Старт",
+            relativeAnchor: [0.5, 1.2],
+            offset: [0, -8],
+          },
+        });
+      } else {
+        originMarker.setCoordinates(lonlat);
+      }
+      originMarker._meta = { lonlat };
+    } catch (error) {
+      logError("Origin marker", error);
+    }
+
+    if (options.center) {
+      setCenter(lonlat);
+    }
+
+    if (typeof options.onSet === "function") {
+      try { options.onSet(lonlat); } catch (e) { logError("Origin callback", e); }
+    }
+  }
+
+  function getOriginPoint() {
+    if (!originLonLat) return null;
+    return { lon: originLonLat[0], lat: originLonLat[1] };
+  }
+
+  function setPickingCursor(enabled) {
+    if (!mapInstance || !mapInstance.getContainer) return;
+    const container = mapInstance.getContainer();
+    if (!container) return;
+
+    if (enabled) {
+      originCursorToken = container.style.cursor;
+      container.style.cursor = "crosshair";
+    } else {
+      if (originCursorToken != null) {
+        container.style.cursor = originCursorToken;
+      } else {
+        container.style.cursor = "";
+      }
+      originCursorToken = null;
+    }
+  }
+
+  function setOriginPickingState(active) {
+    isPickingOrigin = active;
+    setPickingCursor(active);
+    if (originControlButton) {
+      if (active) {
+        originControlButton.classList.add("is-picking");
+        originControlButton.textContent = "Кликните на карту…";
+      } else {
+        originControlButton.classList.remove("is-picking");
+        originControlButton.textContent = "Выбрать старт";
+      }
+    }
+  }
+
+  function handleMapClickForOrigin(ev) {
+    if (!isPickingOrigin || !ev || !ev.lngLat) return;
+    setOriginPickingState(false);
+    setOriginPoint(ev.lngLat, { center: false });
+    if (global.UI?.showToast) {
+      const lon = ev.lngLat[0].toFixed(5);
+      const lat = ev.lngLat[1].toFixed(5);
+      global.UI.showToast(`Стартовая точка: ${lat}, ${lon}`, 2400);
+    }
+    document.dispatchEvent(new CustomEvent("map:origin-changed", {
+      detail: { lon: ev.lngLat[0], lat: ev.lngLat[1] },
+    }));
+  }
+
+  function enterOriginPicking() {
+    ensureMapInstance();
+    setOriginPickingState(true);
+  }
+
+  function ensureOriginControl() {
+    if (!mapInstance || !global.mapgl || typeof global.mapgl.Control !== "function") return;
+    if (originControl) return;
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "map-control map-control--origin";
+    btn.textContent = "Выбрать старт";
+    btn.addEventListener("click", () => {
+      enterOriginPicking();
+      if (global.UI?.showToast) {
+        global.UI.showToast("Кликните на карту, чтобы выбрать старт маршрута", 2600);
+      }
+    });
+
+    originControlButton = btn;
+    originControl = new global.mapgl.Control(mapInstance, btn, { position: "topLeft" });
   }
 
   function setMarkers(pointsOrStops) {
@@ -453,9 +579,12 @@ function renderStopList(containerOrId, stops = []) {
       trafficControl: false,
     });
 
+    mapInstance.on("click", handleMapClickForOrigin);
     mapInstance.on("idle", () => {
       if (mapElement) mapElement.classList.remove("map-placeholder");
     });
+
+    ensureOriginControl();
 
     return {
       setCenter,
@@ -468,6 +597,15 @@ function renderStopList(containerOrId, stops = []) {
       // новое:
       renderStopList,
       focusMarker,
+      setOrigin: setOriginPoint,
+      getOrigin: getOriginPoint,
+      clearOrigin: clearOriginMarker,
+      pickOriginOnMap: () => {
+        enterOriginPicking();
+        if (global.UI?.showToast) {
+          global.UI.showToast("Кликните на карту, чтобы выбрать старт маршрута", 2600);
+        }
+      },
     };
 
   }

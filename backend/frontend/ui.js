@@ -13,6 +13,10 @@
     prefsModal: document.getElementById("prefs-modal"),
     chatModal: document.getElementById("chat-modal"),
     prefsForm: document.querySelector("#prefs-modal form"),
+    originLabel: document.getElementById("origin-label"),
+    pickOriginButton: document.getElementById("btn-origin-pick"),
+    geolocateOriginButton: document.getElementById("btn-origin-geolocate"),
+    clearOriginButton: document.getElementById("btn-origin-clear"),
   };
 
   let toastTimer = null;

@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from dotenv import load_dotenv
 import os
 from dataclasses import dataclass
 
+# попробуем .env рядом с app.py
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=False)
+
+# плюс fallback: корень репо (если бэкенд лежит в подкаталоге)
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=False)
 
 @dataclass(slots=True)
 class Settings:
