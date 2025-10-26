@@ -22,6 +22,11 @@ from tags_vocab import allowed_tags, normalize_tags
 from two_gis_client import fetch_specs_in_region
 from route_logic import build_route
 from tag_queries import plan_queries
+import logging
+import os
+
+
+
 
 DEFAULT_CITY = "Ростов-на-Дону"
 TAG_QUERY_MAP = {
@@ -44,11 +49,26 @@ SEED_PLACES = seed_loader.load_seed()
 FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
 
 
+log = logging.getLogger("boot")
+
+def _mask(v: str | None) -> str | None:
+    if not v:
+        return v
+    v = str(v)
+    if len(v) <= 6:
+        return "***"
+    return f"{v[:3]}***{v[-3:]} (len={len(v)})"
+
+
+
 @app.on_event("startup")
 async def generate_frontend_config() -> None:
     """Ensure frontend/config.js is regenerated from the latest .env."""
     try:
         from scripts.gen_frontend_config import main as build_config
+        log.info("DGIS_API_KEY=%s", _mask(os.environ.get("DGIS_API_KEY")))
+        log.info("settings.dgis_api_key=%s", _mask(getattr(settings, "dgis_api_key", "")))
+
     except Exception as exc:  # pragma: no cover - defensive
         print(f"[WARN] Frontend config import failed: {exc}")
         return
