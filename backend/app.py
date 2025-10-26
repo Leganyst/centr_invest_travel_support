@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date as DateType, datetime
+from pathlib import Path
 from typing import Any, List, Tuple
 
-from fastapi import FastAPI, Query
-from fastapi.responses import Response
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import ics_utils
@@ -35,6 +37,36 @@ app = FastAPI(title="Rostov Day Trip Planner")
 settings = Settings.load()
 llm_client = LLMClient(settings)
 SEED_PLACES = seed_loader.load_seed()
+FRONTEND_DIR = Path(__file__).resolve().parent / "frontend"
+
+
+@app.on_event("startup")
+async def generate_frontend_config() -> None:
+    """Ensure frontend/config.js is regenerated from the latest .env."""
+    try:
+        from scripts.gen_frontend_config import main as build_config
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[WARN] Frontend config import failed: {exc}")
+        return
+
+    try:
+        build_config()
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"[WARN] Frontend config generation failed: {exc}")
+
+
+if FRONTEND_DIR.exists():
+    app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR), name="frontend")
+else:  # pragma: no cover - optional logging
+    print(f"[WARN] Frontend directory missing: {FRONTEND_DIR}")
+
+
+@app.get("/", include_in_schema=False)
+def serve_frontend() -> FileResponse:
+    index_path = FRONTEND_DIR / "index.html"
+    if not index_path.exists():
+        raise HTTPException(status_code=404, detail="Frontend UI is not available")
+    return FileResponse(index_path)
 
 
 class Geo(BaseModel):
@@ -55,7 +87,7 @@ class PlanRequest(BaseModel):
         default=DEFAULT_CITY,
         description="Город по умолчанию, если геопозиция не передана",
     )
-    date: date = Field(description="Дата поездки, ISO формат YYYY-MM-DD")
+    date: DateType = Field(description="Дата поездки, ISO формат YYYY-MM-DD")
     tags: List[str] = Field(
         default_factory=list,
         description="Интересы пользователя. Мапятся на канонические теги через словарь",

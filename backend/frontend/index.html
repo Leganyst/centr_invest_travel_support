@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ростов — маршрут за день</title>
+    <link rel="stylesheet" href="/frontend/styles.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <button id="btn-view-route" class="top-action">Маршрут</button>
+      <button id="btn-preferences" class="top-action">Предпочтения</button>
+      <button id="btn-chat" class="top-action">Чат</button>
+    </header>
+
+    <main>
+      <div id="map" class="map-placeholder">Загружаем карту…</div>
+    </main>
+
+    <footer class="bottom-bar">
+      <button id="btn-build" class="bottom-action">Построить (пешком)</button>
+      <button id="btn-download-ics" class="bottom-action">Скачать ICS</button>
+      <button id="btn-explain" class="bottom-action">Объяснить</button>
+    </footer>
+
+    <section id="route-list" class="route-list"></section>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <dialog id="prefs-modal" class="modal">
+      <form method="dialog">
+        <h2>Предпочтения</h2>
+        <fieldset>
+          <legend>Интересы</legend>
+          <label><input type="checkbox" value="history" /> История</label>
+          <label><input type="checkbox" value="art" /> Искусство</label>
+          <label><input type="checkbox" value="food" /> Еда</label>
+          <label><input type="checkbox" value="park" /> Парки</label>
+        </fieldset>
+        <fieldset>
+          <legend>Бюджет</legend>
+          <label><input name="budget" type="radio" value="low" checked /> Низкий</label>
+          <label><input name="budget" type="radio" value="medium" /> Средний</label>
+          <label><input name="budget" type="radio" value="high" /> Высокий</label>
+        </fieldset>
+        <fieldset>
+          <legend>Темп</legend>
+          <label><input name="pace" type="radio" value="relaxed" /> Спокойный</label>
+          <label><input name="pace" type="radio" value="normal" checked /> Обычный</label>
+          <label><input name="pace" type="radio" value="fast" /> Быстрый</label>
+        </fieldset>
+        <menu>
+          <button value="cancel">Отмена</button>
+          <button value="default" id="prefs-save">Сохранить</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <dialog id="chat-modal" class="modal">
+      <form method="dialog">
+        <h2>Чат с помощником</h2>
+        <label class="modal-field">
+          <span>Сообщение</span>
+          <textarea id="chat-input" rows="3" placeholder="Скоро тут будет чат…" disabled></textarea>
+        </label>
+        <menu>
+          <button value="cancel">Закрыть</button>
+          <button value="default" id="chat-send" disabled>Отправить</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <script src="/frontend/config.js"></script>
+    <script src="https://mapgl.2gis.com/api/js/v1" defer></script>
+    <script src="https://unpkg.com/@2gis/mapgl-directions@^2/dist/directions.js" defer></script>
+    <script src="/frontend/map.js" defer></script>
+    <script src="/frontend/ui.js" defer></script>
+    <script src="/frontend/app.js" defer></script>
+  </body>
+</html>
