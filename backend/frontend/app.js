@@ -43,7 +43,8 @@
   const appState = {
     points: [],
     route: null,
-    prefs: { tags: [], budget: "low", pace: "normal" },
+    routePlan: null,
+    prefs: { city: "Ростов-на-Дону", tags: [], budget: "low", pace: "normal" },
     userLocation: { ...DEFAULT_USER_LOCATION },
   };
 
@@ -99,8 +100,50 @@
     });
   }
 
+  function formatTime(value) {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  // Загружаем канонические теги из бэка и отдаём их в UI для рендера чекбоксов
+  async function loadCanonicalTags() {
+    try {
+      const res = await fetch("/tags");
+      if (!res.ok) throw new Error(`/tags HTTP ${res.status}`);
+      const data = await res.json(); // { tags: [...] }
+      if (Array.isArray(data.tags)) {
+        global.UI.populateTags(data.tags);
+      }
+    } catch (e) {
+      console.warn("[App] Не удалось получить список тегов:", e);
+    }
+  }
+
+  // Подстраховка: если на форме окажутся неканонические значения — нормализуем на бэке
+  async function normalizeTagsClientSide(tags) {
+    try {
+      const res = await fetch("/normalize_tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      });
+      if (!res.ok) throw new Error(`/_normalize HTTP ${res.status}`);
+      const data = await res.json(); // { tags: [...] }
+      return Array.isArray(data.tags) ? data.tags : tags;
+    } catch {
+      return tags;
+    }
+  }
+
+
   function updateRouteList() {
-    global.UI.renderRouteList(appState.points, appState.route);
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
   }
 
   async function handleBuildRoute() {
@@ -113,31 +156,134 @@
     }
     isBuilding = true;
     global.UI.showToast("Запрашиваем геолокацию…", 2000);
+
     try {
       const location = await requestUserLocation();
       if (location) {
         mergeUserLocation(location);
         mapApi.setUserLocation(appState.userLocation, { center: true });
       } else if (appState.userLocation) {
-        mapApi.setUserLocation(appState.userLocation, { center: false });
+        mapApi.setUserLocation(appState.userLocation, { center: true });
       }
 
-      global.UI.showToast("Строим пеший маршрут…", 1800);
-      appState.points = TEST_POINTS;
+      global.UI.showToast("Запрашиваем маршрут у сервера…", 2000);
+
+      const rawTags = Array.isArray(appState.prefs.tags) ? appState.prefs.tags : [];
+      const canonTags = await normalizeTagsClientSide(rawTags);
+
+      const requestPayload = {
+        date: new Date().toISOString().slice(0, 10),
+        city: appState.prefs.city || "Ростов-на-Дону",
+        tags: canonTags, // <-- отправляем канонические значения
+        budget: appState.prefs.budget || null,
+        pace: appState.prefs.pace || null,
+      };
+
+      // user_location: координаты — как есть (полная точность),
+      // accuracy_m — ТОЛЬКО целое (backend ожидает int)
+      if (
+        appState.userLocation &&
+        appState.userLocation.lat != null &&
+        appState.userLocation.lon != null
+      ) {
+        requestPayload.user_location = {
+          lat: appState.userLocation.lat,
+          lon: appState.userLocation.lon,
+          accuracy_m:
+            typeof appState.userLocation.accuracy === "number"
+              ? Math.round(appState.userLocation.accuracy)
+              : null,
+        };
+      }
+
+      let planData = null;
+      try {
+        const response = await fetch("/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestPayload),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        planData = await response.json();
+      } catch (error) {
+        console.error("[App] Ошибка запроса /plan:", error);
+        global.UI.showToast("Не удалось получить маршрут с сервера, используем демо-данные", 2600);
+      }
+
+      let effectivePoints = TEST_POINTS;
+
+      if (planData && Array.isArray(planData.stops) && planData.stops.length) {
+        const limitedStops = planData.stops.slice(0, 10); // лимит на уровне клиента тоже
+        appState.routePlan = { ...planData, stops: limitedStops };
+
+        effectivePoints = limitedStops
+          .map((stop, index) => {
+            const lat = parseFloat(stop.lat);
+            const lon = parseFloat(stop.lon);
+            const ok =
+              Number.isFinite(lat) &&
+              Number.isFinite(lon) &&
+              lat >= -90 &&
+              lat <= 90 &&
+              lon >= -180 &&
+              lon <= 180;
+
+            const arriveTime = formatTime(stop.arrive);
+            const leaveTime = formatTime(stop.leave);
+            const metaParts = [];
+            if (arriveTime) metaParts.push(`Прибытие ${arriveTime}`);
+            if (leaveTime) metaParts.push(`Отправление ${leaveTime}`);
+            if (Array.isArray(stop.tags) && stop.tags.length) metaParts.push(stop.tags.join(", "));
+
+            return ok
+              ? {
+                  id: index,
+                  title: (stop.name && String(stop.name)) || `Точка ${index + 1}`,
+                  desc: metaParts.join(" · ") || "",
+                  lat,
+                  lon,
+                  arrive: stop.arrive || null,
+                  leave: stop.leave || null,
+                  tags: Array.isArray(stop.tags) ? stop.tags : [],
+                }
+              : null;
+          })
+          .filter(Boolean);
+        global.UI.showToast(
+          `Маршрут готов: ${planData.total_time || `${planData.total_minutes} мин`}`,
+          2600
+        );
+      } else {
+        appState.routePlan = null;
+      }
+
+      appState.points = effectivePoints.length ? effectivePoints : TEST_POINTS;
+
       mapApi.setMarkers(appState.points);
       const pointsToFit = appState.userLocation
         ? [...appState.points, appState.userLocation]
         : [...appState.points];
       mapApi.fitTo(pointsToFit);
-      const route = await mapApi.buildPedestrianRoute(appState.points);
-      appState.route = route;
-      updateRouteList();
 
-      if (route.usedFallback) {
-        global.UI.showToast("Не удалось построить точный маршрут, показан приблизительный");
+      if (appState.points.length >= 2) {
+        const route = await mapApi.buildPedestrianRoute(appState.points);
+        appState.route = route;
+        if (route.usedFallback && planData) {
+          global.UI.showToast(
+            "Не удалось построить точный маршрут на карте, показан приблизительный",
+            2800
+          );
+        }
       } else {
-        global.UI.showToast("Маршрут построен");
+        appState.route = null;
       }
+
+      updateRouteList();
     } catch (error) {
       console.error("[App] Не удалось построить маршрут:", error);
       global.UI.showToast("Ошибка построения маршрута, проверьте консоль");
@@ -145,6 +291,7 @@
       isBuilding = false;
     }
   }
+
 
   function handleExplain() {
     global.alert("Объяснение будет тут");
@@ -179,7 +326,7 @@
     try {
       mapApi = global.FrontendMap.initMap({ mapKey, directionsKey });
       if (appState.userLocation) {
-        mapApi.setUserLocation(appState.userLocation, { center: false });
+        mapApi.setUserLocation(appState.userLocation, { center: true });
       }
     } catch (error) {
       console.error("[App] Ошибка инициализации карты:", error);
@@ -194,8 +341,9 @@
     }
 
     initMap();
+    loadCanonicalTags();
     global.UI.setStateGetter(() => appState);
-    global.UI.renderRouteList(appState.points, appState.route);
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
     global.UI.init({
       onBuildRoute: handleBuildRoute,
       onExplain: handleExplain,

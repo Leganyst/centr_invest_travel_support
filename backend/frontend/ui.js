@@ -19,7 +19,8 @@
   let getState = () => ({
     points: [],
     route: null,
-    prefs: { tags: [], budget: "low", pace: "normal" },
+    routePlan: null,
+    prefs: { city: "Ростов-на-Дону", tags: [], budget: "low", pace: "normal" },
   });
   let handlers = {};
 
@@ -39,6 +40,29 @@
     return value != null ? String(value) : "";
   }
 
+  function formatTime(value) {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  }
+
+  function diffMinutes(start, end) {
+    if (!start || !end) {
+      return null;
+    }
+    const startDate = new Date(start);
+    const endDate = new Date(end);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+      return null;
+    }
+    return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
+  }
+
   function escapeIcs(value) {
     return value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
   }
@@ -47,14 +71,21 @@
     return date.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
   }
 
-  function generateIcs(points) {
+  function generateIcs(state) {
+    const stops = state.routePlan?.stops;
+    const points = stops && stops.length
+      ? stops.map((stop, index) => ({
+          title: stop.name || `Точка ${index + 1}`,
+          desc: Array.isArray(stop.tags) && stop.tags.length ? stop.tags.join(", ") : "",
+          arrive: stop.arrive,
+          leave: stop.leave,
+        }))
+      : state.points;
+
     if (!points.length) {
       return "";
     }
     const now = new Date();
-    const start = new Date(now);
-    start.setHours(10, 0, 0, 0);
-    const durationMinutes = 60;
 
     const lines = [
       "BEGIN:VCALENDAR",
@@ -64,8 +95,10 @@
     ];
 
     points.forEach((point, index) => {
-      const eventStart = new Date(start.getTime() + index * durationMinutes * 60 * 1000);
-      const eventEnd = new Date(eventStart.getTime() + durationMinutes * 60 * 1000);
+      const baseStart = new Date(now);
+      baseStart.setHours(10, 0, 0, 0);
+      const eventStart = point.arrive ? new Date(point.arrive) : new Date(baseStart.getTime() + index * 60 * 60 * 1000);
+      const eventEnd = point.leave ? new Date(point.leave) : new Date(eventStart.getTime() + 60 * 60 * 1000);
       lines.push(
         "BEGIN:VEVENT",
         `UID:${Date.now()}-${index}@centr-invest-demo`,
@@ -88,7 +121,7 @@
       global.alert("Постройте маршрут, чтобы сохранить календарь.");
       return;
     }
-    const ics = generateIcs(state.points);
+    const ics = generateIcs(state);
     if (!ics) {
       global.alert("Нет данных для сохранения маршрута.");
       return;
@@ -135,7 +168,7 @@
     }, timeout);
   }
 
-  function renderRouteList(points, route) {
+  function renderRouteList(points, route, plan) {
     const container = elements.routeList;
     if (!container) {
       return;
@@ -145,21 +178,74 @@
       return;
     }
     const legs = route?.legs ?? [];
-    container.innerHTML = points
+    const summaryParts = [];
+    if (plan?.total_time) {
+      summaryParts.push(`≈ ${escapeHtml(plan.total_time)}`);
+    } else if (plan?.total_minutes) {
+      summaryParts.push(`≈ ${plan.total_minutes} мин`);
+    }
+    if (plan?.stops?.length) {
+      summaryParts.push(`${plan.stops.length} точек`);
+    }
+
+    const summaryHtml = summaryParts.length
+      ? `<header class="route-summary"><span class="summary-label">Маршрут</span><span class="summary-value">${summaryParts.join(" · ")}</span></header>`
+      : "";
+
+    container.innerHTML =
+      summaryHtml +
+      points
       .map((point, index) => {
         const leg = legs[index - 1];
         const eta = leg?.duration ? Math.round(leg.duration / 60) : 0;
+        const stopPlan = plan?.stops?.[index];
+        const arriveTime = formatTime(stopPlan?.arrive);
+        const leaveTime = formatTime(stopPlan?.leave);
+        const stayMinutes = diffMinutes(stopPlan?.arrive, stopPlan?.leave);
+        const tags = Array.isArray(stopPlan?.tags) && stopPlan.tags.length ? stopPlan.tags.join(", ") : null;
         return `
           <article class="route-item">
-            <h3>${escapeHtml(point.title || `Точка ${index + 1}`)}</h3>
-            <p>${escapeHtml(point.desc || "Описание появится позже")}</p>
+            <h3><span class="route-step">${index + 1}</span>${escapeHtml(point.title || `Точка ${index + 1}`)}</h3>
+            ${point.desc ? `<p>${escapeHtml(point.desc)}</p>` : ""}
             <p class="route-meta">Координаты: ${formatCoord(point.lat)}, ${formatCoord(point.lon)}</p>
-            ${eta ? `<p class="route-meta">В пути ≈ ${eta} мин</p>` : ""}
+            ${eta ? `<p class="route-meta">Переход от предыдущей точки ≈ ${eta} мин</p>` : ""}
+            ${arriveTime || leaveTime ? `<p class="route-meta">${arriveTime ? `Прибытие ${arriveTime}` : ""}${arriveTime && leaveTime ? " · " : ""}${leaveTime ? `Отправление ${leaveTime}` : ""}</p>` : ""}
+            ${stayMinutes ? `<p class="route-meta">На месте ≈ ${stayMinutes} мин</p>` : ""}
+            ${tags ? `<p class="route-tags">${escapeHtml(tags)}</p>` : ""}
           </article>
         `;
       })
       .join("");
   }
+
+  function populateTags(tags) {
+    const form = elements.prefsForm;
+    if (!form || !Array.isArray(tags)) return;
+
+    // контейнер под чекбоксы — создадим, если его нет
+    let box = form.querySelector('[data-role="tags-box"]');
+    if (!box) {
+      box = document.createElement("div");
+      box.setAttribute("data-role", "tags-box");
+      box.className = "tags-box";
+      // Вставь в удобное место формы; можно до первых полей:
+      form.prepend(box);
+    }
+
+    box.innerHTML = tags
+      .map(
+        (tag) => `
+        <label class="tag-option">
+          <input type="checkbox" value="${tag}">
+          <span>${escapeHtml(tag)}</span>
+        </label>`
+      )
+      .join("");
+
+    // после генерации — синхронизировать состояние (отметить уже выбранные)
+    syncPreferences(getState().prefs);
+  }
+
 
   function syncPreferences(prefs) {
     if (!elements.prefsForm) {
@@ -233,6 +319,7 @@
     showToast,
     syncPreferences,
     scrollRouteList,
+    populateTags,
     setStateGetter(fn) {
       if (typeof fn === "function") {
         getState = fn;
