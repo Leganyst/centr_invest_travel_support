@@ -44,6 +44,8 @@
     points: [],
     route: null,
     routePlan: null,
+    routeExplanation: "",
+    lastPlanRequest: null,
     prefs: { city: "Ростов-на-Дону", tags: [], budget: "low", pace: "normal" },
     userLocation: { ...DEFAULT_USER_LOCATION },
     origin: null,
@@ -51,6 +53,7 @@
 
   let mapApi = null;
   let isBuilding = false;
+  let isExplaining = false;
 
   function getMapKey() {
     return global.__CONFIG__?.DGIS_MAPGL_API_KEY;
@@ -231,7 +234,9 @@
 
 
   function updateRouteList() {
-    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan, {
+      explanation: appState.routeExplanation,
+    });
   }
 
   async function handleBuildRoute() {
@@ -263,6 +268,8 @@
         pace: appState.prefs.pace || null,
       };
 
+      appState.lastPlanRequest = { ...requestPayload };
+
       if (originPoint) {
         requestPayload.user_location = {
           lat: originPoint.lat,
@@ -273,6 +280,7 @@
       }
 
       let planData = null;
+      appState.routeExplanation = "";
       try {
         const response = await fetch("/plan", {
           method: "POST",
@@ -295,7 +303,11 @@
 
       if (planData && Array.isArray(planData.stops) && planData.stops.length) {
         const limitedStops = planData.stops.slice(0, 10);
-        appState.routePlan = { ...planData, stops: limitedStops };
+        appState.routePlan = {
+          ...planData,
+          stops: limitedStops,
+          date: appState.lastPlanRequest?.date || planData.date || requestPayload.date,
+        };
 
         effectivePoints = limitedStops
           .map((stop, index) => {
@@ -427,7 +439,70 @@
 
 
   function handleExplain() {
-    global.alert("Объяснение будет тут");
+    if (
+      !appState.routePlan ||
+      !Array.isArray(appState.routePlan.stops) ||
+      !appState.routePlan.stops.length
+    ) {
+      global.UI.showToast("Сначала постройте маршрут", 2400);
+      return;
+    }
+    if (isExplaining) {
+      return;
+    }
+    isExplaining = true;
+    global.UI.showToast("Готовим объяснение маршрута…", 2200);
+
+    (async () => {
+      try {
+        const basePrefs = appState.lastPlanRequest || {};
+        const prefsPayload = {
+          city: basePrefs.city || appState.prefs.city || "Ростов-на-Дону",
+          tags: Array.isArray(basePrefs.tags)
+            ? basePrefs.tags
+            : Array.isArray(appState.prefs.tags)
+            ? appState.prefs.tags
+            : [],
+          budget: basePrefs.budget || appState.prefs.budget || null,
+          pace: basePrefs.pace || appState.prefs.pace || null,
+          date:
+            basePrefs.date ||
+            (appState.routePlan?.date ?? new Date().toISOString().slice(0, 10)),
+        };
+
+        const normalizedTags = Array.isArray(prefsPayload.tags)
+          ? prefsPayload.tags.filter((tag) => typeof tag === "string")
+          : [];
+        prefsPayload.tags = normalizedTags;
+
+        const response = await fetch("/llm/explain", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prefs: prefsPayload,
+            stops: appState.routePlan.stops,
+          }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        const data = await response.json();
+        const text = typeof data.text === "string" ? data.text.trim() : "";
+        appState.routeExplanation = text || "Объяснение временно недоступно.";
+        updateRouteList();
+        if (text) {
+          global.UI.showToast("Объяснение готово", 2200);
+        }
+      } catch (error) {
+        console.error("[App] Не удалось получить объяснение маршрута:", error);
+        global.UI.showToast("LLM пока недоступен, попробуйте позже", 2600);
+      } finally {
+        isExplaining = false;
+      }
+    })();
   }
 
   function handleViewRoute() {
@@ -507,7 +582,9 @@
     initMap();
     loadCanonicalTags();
     global.UI.setStateGetter(() => appState);
-    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan, {
+      explanation: appState.routeExplanation,
+    });
     global.UI.updateOriginIndicator(appState.origin);
 
     // [MOBILE] Инициализируем мобильные улучшения

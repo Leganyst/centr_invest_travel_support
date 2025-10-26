@@ -239,6 +239,29 @@ main {
   color: #475467;
 }
 
+.route-explanation {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.28);
+  color: #1e293b;
+}
+
+.route-explanation h4 {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.route-explanation p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #1f2937;
+}
+
 .route-desc {
   color: #1f2937;
   font-size: 0.95rem;

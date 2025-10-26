@@ -172,7 +172,7 @@
     }, timeout);
   }
 
-  function renderRouteList(points, route, plan) {
+  function renderRouteList(points, route, plan, extras = {}) {
     const container = elements.routeList;
     if (!container) {
       return;
@@ -182,6 +182,8 @@
       return;
     }
     const legs = route?.legs ?? [];
+    const explanation =
+      extras && typeof extras.explanation === "string" ? extras.explanation.trim() : "";
     const summaryParts = [];
     if (plan?.total_time) {
       summaryParts.push(`≈ ${escapeHtml(plan.total_time)}`);
@@ -196,8 +198,16 @@
       ? `<header class="route-summary"><span class="summary-label">Маршрут</span><span class="summary-value">${summaryParts.join(" · ")}</span></header>`
       : "";
 
+    const explanationHtml = explanation
+      ? `<section class="route-explanation">
+          <h4>Почему именно эти места</h4>
+          <p>${escapeHtml(explanation).replace(/\n/g, "<br>")}</p>
+        </section>`
+      : "";
+
     container.innerHTML =
       summaryHtml +
+      explanationHtml +
       points
       .map((point, index) => {
         const leg = legs[index - 1];
