@@ -89,6 +89,20 @@
       </form>
     </dialog>
 
+    <dialog id="explain-modal" class="modal">
+      <form method="dialog">
+        <h2>Пояснение маршрута</h2>
+        <div class="explain-body">
+          <p id="explain-summary" class="explain-summary">Готовим объяснение маршрута…</p>
+          <ol id="explain-stops" class="explain-stops"></ol>
+          <div id="explain-sources" class="explain-sources hidden"></div>
+        </div>
+        <menu>
+          <button value="cancel" id="explain-close">Закрыть</button>
+        </menu>
+      </form>
+    </dialog>
+
     <script src="/frontend/config.js"></script>
     <script src="https://mapgl.2gis.com/api/js/v1" defer></script>
     <script src="https://unpkg.com/@2gis/mapgl-directions@^2/dist/directions.js" defer></script>

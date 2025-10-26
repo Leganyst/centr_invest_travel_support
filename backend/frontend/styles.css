@@ -239,27 +239,85 @@ main {
   color: #475467;
 }
 
-.route-explanation {
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.28);
-  color: #1e293b;
+
+.explain-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
-.route-explanation h4 {
-  margin: 0 0 6px;
+.explain-sources {
+  margin-top: 8px;
+}
+
+.explain-sources h5 {
+  margin: 12px 0 4px;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #475467;
+}
+
+.explain-summary {
+  margin: 0 0 12px;
   font-size: 0.95rem;
-  font-weight: 600;
+  line-height: 1.6;
+  color: #eff1f3;
+}
+
+.explain-stops {
+  margin: 0 0 16px;
+  padding-left: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.explain-stop {
+  margin: 0;
+}
+
+.explain-stop h5 {
+  margin: 0 0 4px;
+  font-size: 0.95rem;
   color: #1d4ed8;
 }
 
-.route-explanation p {
+.explain-stop p {
   margin: 0;
   font-size: 0.9rem;
-  line-height: 1.5;
-  color: #1f2937;
+  line-height: 1.6;
+  color: #e5e7e9;
+}
+
+.explain-stop-sources {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: #a3abb8;
+}
+
+.explain-source-ref {
+  color: #a5bff8;
+  font-weight: 600;
+}
+
+.explain-sources-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: #eff0f1;
+}
+
+.explain-sources-list a {
+  color: #9db1e9;
+  text-decoration: none;
+}
+
+.explain-sources-list a:hover,
+.explain-sources-list a:focus-visible {
+  text-decoration: underline;
 }
 
 .route-desc {

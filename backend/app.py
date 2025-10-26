@@ -379,10 +379,13 @@ async def llm_next_step(request: ConversationRequest) -> dict[str, Any]:
         " Без LLM используется шаблонная подсказка."
     ),
 )
-async def llm_explain(request: ExplainRequest) -> dict[str, str]:
-    """Generate a short explanation for an already built route."""
-    text = await llm_client.explain_route(request.prefs, [stop.dict() for stop in request.stops])
-    return {"text": text}
+async def llm_explain(request: ExplainRequest) -> dict[str, Any]:
+    """Generate a structured explanation for an already built route."""
+    explanation = await llm_client.explain_route(
+        request.prefs,
+        [stop.dict() for stop in request.stops],
+    )
+    return explanation
 
 
 def _clamp_radius(radius_m: int | None) -> int:

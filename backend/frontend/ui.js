@@ -17,6 +17,10 @@
     pickOriginButton: document.getElementById("btn-origin-pick"),
     geolocateOriginButton: document.getElementById("btn-origin-geolocate"),
     clearOriginButton: document.getElementById("btn-origin-clear"),
+    explainModal: document.getElementById("explain-modal"),
+    explainSummary: document.getElementById("explain-summary"),
+    explainStops: document.getElementById("explain-stops"),
+    explainSources: document.getElementById("explain-sources"),
   };
 
   let toastTimer = null;
@@ -172,7 +176,7 @@
     }, timeout);
   }
 
-  function renderRouteList(points, route, plan, extras = {}) {
+  function renderRouteList(points, route, plan) {
     const container = elements.routeList;
     if (!container) {
       return;
@@ -182,8 +186,6 @@
       return;
     }
     const legs = route?.legs ?? [];
-    const explanation =
-      extras && typeof extras.explanation === "string" ? extras.explanation.trim() : "";
     const summaryParts = [];
     if (plan?.total_time) {
       summaryParts.push(`≈ ${escapeHtml(plan.total_time)}`);
@@ -198,16 +200,8 @@
       ? `<header class="route-summary"><span class="summary-label">Маршрут</span><span class="summary-value">${summaryParts.join(" · ")}</span></header>`
       : "";
 
-    const explanationHtml = explanation
-      ? `<section class="route-explanation">
-          <h4>Почему именно эти места</h4>
-          <p>${escapeHtml(explanation).replace(/\n/g, "<br>")}</p>
-        </section>`
-      : "";
-
     container.innerHTML =
       summaryHtml +
-      explanationHtml +
       points
       .map((point, index) => {
         const leg = legs[index - 1];
@@ -313,6 +307,77 @@
     });
   }
 
+  function renderExplanationContent(payload) {
+    if (!elements.explainModal) return;
+    const summary = typeof payload?.summary === "string" ? payload.summary : "";
+    if (elements.explainSummary) {
+      elements.explainSummary.textContent = summary || "Объяснение появится здесь.";
+    }
+
+    if (elements.explainStops) {
+      if (Array.isArray(payload?.stops) && payload.stops.length) {
+        const parts = payload.stops.map((stop, idx) => {
+          const name = escapeHtml(stop.name || `Точка ${idx + 1}`);
+          const insight = escapeHtml(stop.insight || "");
+          const sources =
+            Array.isArray(stop.sources) && stop.sources.length
+              ? `<div class="explain-stop-sources">См. источники: ${stop.sources
+                  .map((id) => `<span class="explain-source-ref">[${escapeHtml(String(id))}]</span>`)
+                  .join(" ")}</div>`
+              : "";
+          return `
+            <li class="explain-stop">
+              <h5>${name}</h5>
+              <p>${insight}</p>
+              ${sources}
+            </li>`;
+        });
+        elements.explainStops.innerHTML = parts.join("");
+      } else {
+        elements.explainStops.innerHTML = "";
+      }
+    }
+
+    if (elements.explainSources) {
+      const sources = Array.isArray(payload?.sources) ? payload.sources : [];
+      if (sources.length) {
+        const items = sources
+          .map((src) => {
+            const id = escapeHtml(String(src.id ?? ""));
+            const title = escapeHtml(src.title || `Источник ${id}`);
+            const url = escapeHtml(src.url || "");
+            return `<li>[${id}] <a href="${url}" target="_blank" rel="noopener noreferrer">${title}</a></li>`;
+          })
+          .join("");
+        elements.explainSources.innerHTML = `<h5>Источники</h5><ul class="explain-sources-list">${items}</ul>`;
+        elements.explainSources.classList.remove("hidden");
+      } else {
+        elements.explainSources.innerHTML = "";
+        elements.explainSources.classList.add("hidden");
+      }
+    }
+  }
+
+  function showExplanationLoading() {
+    if (!elements.explainModal) return;
+    renderExplanationContent({ summary: "Готовим объяснение маршрута…", stops: [], sources: [] });
+    if (!elements.explainModal.open) elements.explainModal.showModal();
+  }
+
+  function showExplanation(payload) {
+    if (!elements.explainModal) return;
+    renderExplanationContent(payload);
+    if (!elements.explainModal.open) elements.explainModal.showModal();
+  }
+
+  function showExplanationError(message) {
+    showExplanation({
+      summary: message,
+      stops: [],
+      sources: [],
+    });
+  }
+
   function attachEvents() {
     elements.buildButton?.addEventListener("click", () => {
       console.log("[UI] Нажата кнопка построения маршрута");
@@ -386,6 +451,9 @@
     scrollRouteList,
     populateTags,
     updateOriginIndicator,
+    showExplanation,
+    showExplanationLoading,
+    showExplanationError,
     setStateGetter(fn) {
       if (typeof fn === "function") {
         getState = fn;

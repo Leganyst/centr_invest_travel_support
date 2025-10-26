@@ -44,7 +44,7 @@
     points: [],
     route: null,
     routePlan: null,
-    routeExplanation: "",
+    routeExplanation: null,
     lastPlanRequest: null,
     prefs: { city: "Ростов-на-Дону", tags: [], budget: "low", pace: "normal" },
     userLocation: { ...DEFAULT_USER_LOCATION },
@@ -73,6 +73,46 @@
       accuracy: location.accuracy ?? null,
       timestamp: location.timestamp ?? Date.now(),
     };
+  }
+
+  const CITY_CANDIDATES = {
+    "Ростов-на-Дону": [47.222078, 39.720349],
+    "Таганрог": [47.2096, 38.9358],
+    "Азов": [47.1121, 39.4231],
+  };
+
+  function haversineDistanceKm(lat1, lon1, lat2, lon2) {
+    const R = 6371;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  function guessCityFromStops(stops) {
+    if (!Array.isArray(stops) || !stops.length) return null;
+    const first = stops.find(
+      (stop) =>
+        Number.isFinite(parseFloat(stop?.lat)) &&
+        Number.isFinite(parseFloat(stop?.lon))
+    );
+    if (!first) return null;
+    const lat = parseFloat(first.lat);
+    const lon = parseFloat(first.lon);
+    let bestCity = null;
+    let bestDistance = Infinity;
+    Object.entries(CITY_CANDIDATES).forEach(([city, [clat, clon]]) => {
+      const dist = haversineDistanceKm(lat, lon, clat, clon);
+      if (dist < bestDistance) {
+        bestDistance = dist;
+        bestCity = city;
+      }
+    });
+    return bestCity;
   }
 
   function normalizeOrigin(point) {
@@ -202,6 +242,118 @@
     return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
   }
 
+  function normalizeExplanationPayload(raw) {
+    const summary = typeof raw?.summary === "string" ? raw.summary.trim() : "";
+    const explicitSources = Array.isArray(raw?.sources) ? raw.sources : [];
+
+    const byId = new Map();
+    const byUrl = new Map();
+
+    const ensureRecord = (candidate) => {
+      if (!candidate) return null;
+      const cleanTitle = typeof candidate.title === "string" ? candidate.title.trim() : "";
+      const cleanUrl = typeof candidate.url === "string" ? candidate.url.trim() : "";
+      let numericId = Number(candidate.id);
+      if (!Number.isInteger(numericId) || numericId <= 0) {
+        numericId = null;
+      }
+
+      if (numericId && byId.has(numericId)) {
+        const existing = byId.get(numericId);
+        if (cleanUrl && !existing.url) {
+          existing.url = cleanUrl;
+          if (!byUrl.has(cleanUrl)) byUrl.set(cleanUrl, existing.id);
+        }
+        if (cleanTitle && (existing.title.startsWith("Источник") || !existing.title)) {
+          existing.title = cleanTitle;
+        }
+        return existing;
+      }
+
+      if (cleanUrl && byUrl.has(cleanUrl)) {
+        const existing = byId.get(byUrl.get(cleanUrl));
+        if (cleanTitle && (existing.title.startsWith("Источник") || !existing.title)) {
+          existing.title = cleanTitle;
+        }
+        return existing;
+      }
+
+      if (!numericId) {
+        numericId = byId.size + 1;
+        while (byId.has(numericId)) {
+          numericId += 1;
+        }
+      }
+
+      const record = {
+        id: numericId,
+        title: cleanTitle || `Источник ${numericId}`,
+        url: cleanUrl,
+      };
+      byId.set(record.id, record);
+      if (cleanUrl && !byUrl.has(cleanUrl)) {
+        byUrl.set(cleanUrl, record.id);
+      }
+      return record;
+    };
+
+    explicitSources.forEach((src) => {
+      ensureRecord(src);
+    });
+
+    const stopEntries = Array.isArray(raw?.stops)
+      ? raw.stops
+          .map((stop) => {
+            const name = typeof stop?.name === "string" ? stop.name.trim() : "";
+            const insight =
+              typeof stop?.insight === "string"
+                ? stop.insight.trim()
+                : typeof stop?.description === "string"
+                ? stop.description.trim()
+                : "";
+            if (!name || !insight) {
+              return null;
+            }
+            const sourceIds = new Set();
+            const rawSources = Array.isArray(stop?.sources) ? stop.sources : [];
+            rawSources.forEach((entry, idx) => {
+              if (typeof entry === "number" || typeof entry === "string") {
+                const numeric = Number(entry);
+                if (Number.isInteger(numeric) && numeric > 0) {
+                  const record = ensureRecord({ id: numeric });
+                  sourceIds.add(record.id);
+                }
+                return;
+              }
+              if (entry && typeof entry === "object") {
+                const record = ensureRecord({
+                  id: entry.id ?? idx + 1,
+                  title: entry.title,
+                  url: entry.url,
+                });
+                sourceIds.add(record.id);
+              }
+            });
+            return { name, insight, sources: Array.from(sourceIds) };
+          })
+          .filter(Boolean)
+      : [];
+
+    const sources = Array.from(byId.values()).sort((a, b) => a.id - b.id);
+    const existingIds = new Set(sources.map((src) => src.id));
+
+    const normalizedStops = stopEntries.map((stop) => {
+      const refs = stop.sources.filter((id, index, arr) => existingIds.has(id) && arr.indexOf(id) === index);
+      return { name: stop.name, insight: stop.insight, sources: refs };
+    });
+
+    return {
+      summary,
+      stops: normalizedStops,
+      sources,
+    };
+  }
+
   // Загружаем канонические теги из бэка и отдаём их в UI для рендера чекбоксов
   async function loadCanonicalTags() {
     try {
@@ -234,9 +386,7 @@
 
 
   function updateRouteList() {
-    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan, {
-      explanation: appState.routeExplanation,
-    });
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
   }
 
   async function handleBuildRoute() {
@@ -269,6 +419,7 @@
       };
 
       appState.lastPlanRequest = { ...requestPayload };
+      appState.routeExplanation = null;
 
       if (originPoint) {
         requestPayload.user_location = {
@@ -280,7 +431,6 @@
       }
 
       let planData = null;
-      appState.routeExplanation = "";
       try {
         const response = await fetch("/plan", {
           method: "POST",
@@ -450,14 +600,24 @@
     if (isExplaining) {
       return;
     }
+    if (appState.routeExplanation) {
+      global.UI.showExplanation(appState.routeExplanation);
+      return;
+    }
+
     isExplaining = true;
-    global.UI.showToast("Готовим объяснение маршрута…", 2200);
+    global.UI.showExplanationLoading();
 
     (async () => {
       try {
         const basePrefs = appState.lastPlanRequest || {};
         const prefsPayload = {
-          city: basePrefs.city || appState.prefs.city || "Ростов-на-Дону",
+          city:
+            basePrefs.city ||
+            appState.routePlan?.city ||
+            guessCityFromStops(appState.routePlan.stops) ||
+            appState.prefs.city ||
+            "Ростов-на-Дону",
           tags: Array.isArray(basePrefs.tags)
             ? basePrefs.tags
             : Array.isArray(appState.prefs.tags)
@@ -467,7 +627,8 @@
           pace: basePrefs.pace || appState.prefs.pace || null,
           date:
             basePrefs.date ||
-            (appState.routePlan?.date ?? new Date().toISOString().slice(0, 10)),
+            appState.routePlan?.date ||
+            new Date().toISOString().slice(0, 10),
         };
 
         const normalizedTags = Array.isArray(prefsPayload.tags)
@@ -490,14 +651,13 @@
         }
 
         const data = await response.json();
-        const text = typeof data.text === "string" ? data.text.trim() : "";
-        appState.routeExplanation = text || "Объяснение временно недоступно.";
-        updateRouteList();
-        if (text) {
-          global.UI.showToast("Объяснение готово", 2200);
-        }
+        const explanation = normalizeExplanationPayload(data);
+        appState.routeExplanation = explanation;
+        global.UI.showExplanation(explanation);
+        global.UI.showToast("Объяснение готово", 2200);
       } catch (error) {
         console.error("[App] Не удалось получить объяснение маршрута:", error);
+        global.UI.showExplanationError("Не удалось получить объяснение, попробуйте позже.");
         global.UI.showToast("LLM пока недоступен, попробуйте позже", 2600);
       } finally {
         isExplaining = false;
@@ -582,9 +742,7 @@
     initMap();
     loadCanonicalTags();
     global.UI.setStateGetter(() => appState);
-    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan, {
-      explanation: appState.routeExplanation,
-    });
+    global.UI.renderRouteList(appState.points, appState.route, appState.routePlan);
     global.UI.updateOriginIndicator(appState.origin);
 
     // [MOBILE] Инициализируем мобильные улучшения

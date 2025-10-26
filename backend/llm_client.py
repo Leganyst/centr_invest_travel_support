@@ -45,25 +45,27 @@ class LLMClient:
                 )
         return self._fallback_next_step(normalized_prefs)
 
-    async def explain_route(self, prefs: dict[str, Any], stops: list[dict[str, Any]]) -> str:
-        """Генерация короткого объяснения маршрута. Подтягиваем факты из Википедии."""
+    async def explain_route(self, prefs: dict[str, Any], stops: list[dict[str, Any]]) -> dict[str, Any]:
+        """Генерация объяснения маршрута с фактами по каждой остановке."""
         if "tags" in prefs:
             prefs = {**prefs, "tags": normalize_tags(prefs.get("tags", []))}
 
         city = prefs.get("city") or "Ростов-на-Дону"
 
-        # Сбор «web_facts»: 1–2 факта на каждую из первых остановок
         try:
-            web_facts = await self._build_web_context(city, stops)
+            raw_web_facts = await self._build_web_context(city, stops)
         except Exception as exc:
-            web_facts = {"per_stop": [], "note": f"web facts error: {exc}"}
+            raw_web_facts = {"per_stop": [], "note": f"web facts error: {exc}"}
+
+        prepared_facts, source_catalog = self._prepare_web_context(raw_web_facts)
+        context = {"facts": prepared_facts, "sources": source_catalog}
 
         if self.is_enabled():
             try:
-                return await self._call_explain_api(prefs, stops, web_facts=web_facts)
+                return await self._call_explain_api(prefs, stops, context=context)
             except Exception as exc:  # pragma: no cover - network guardrail
-                return self._fallback_explain(prefs, stops, error=str(exc))
-        return self._fallback_explain(prefs, stops)
+                return self._fallback_explain(prefs, stops, context=context, error=str(exc))
+        return self._fallback_explain(prefs, stops, context=context)
 
     # -------- chat backends ----------
     async def _call_conversation_api(self, known_prefs: dict[str, Any]) -> ConversationResponse:
@@ -97,38 +99,64 @@ class LLMClient:
         prefs: dict[str, Any],
         stops: list[dict[str, Any]],
         *,
-        web_facts: Optional[dict] = None,
-    ) -> str:
-        """
-        Объяснение маршрута. Если переданы web_facts — модель должна опираться ТОЛЬКО на них.
-        Просим 2–4 предложения и список источников вида [1], [2].
-        """
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Обращение к LLM за объяснением маршрута с опорой на подготовленные факты."""
+        fallback = self._fallback_explain(prefs, stops, context=context)
+
+        enriched_stops: List[dict[str, Any]] = []
+        for stop in stops:
+            enriched_stops.append(
+                {
+                    "name": stop.get("name"),
+                    "lat": stop.get("lat"),
+                    "lon": stop.get("lon"),
+                    "description": stop.get("description") or stop.get("desc") or "",
+                    "tags": stop.get("tags", []),
+                    "schedule": {
+                        "arrive": stop.get("arrive"),
+                        "leave": stop.get("leave"),
+                    },
+                }
+            )
+
         payload = {
             "prefs": {
                 "city": prefs.get("city"),
                 "tags": prefs.get("tags", []),
+                "date": prefs.get("date"),
             },
-            "stops": [
-                {"name": s.get("name"), "lat": s.get("lat"), "lon": s.get("lon")}
-                for s in stops
-            ],
-            "web_facts": web_facts or {"per_stop": []},
+            "stops": enriched_stops,
+            "web_facts": context.get("facts", {"per_stop": []}),
+            "sources": context.get("sources", []),
         }
 
         system = (
-            "Ты экскурсовод. Используй ТОЛЬКО факты из 'web_facts' (ни одного факта из головы). "
-            "Пиши кратко по-русски: 2–4 предложения. "
-            "Не повторяй названия всех остановок подряд — дай суть и атмосферу. "
-            "В конце добавь раздел 'Источники' со сносками [1], [2], ... по URL из web_facts. "
-            "Если фактов мало, честно скажи об этом одной фразой и всё равно добавь 'Источники'."
+            "Ты экскурсовод. Используй ТОЛЬКО данные из 'web_facts' и 'sources'. "
+            "Ответь строго валидным JSON без пояснений. Формат:\n"
+            "{\n"
+            '  "summary": "краткое описание (<=280 символов)",\n'
+            '  "stops": [\n'
+            '    {"name": "Название", "insight": "1-2 предложения", "sources": [1,2]}\n'
+            "  ],\n"
+            '  "sources": [\n'
+            '    {"id": 1, "title": "Название источника", "url": "https://..."}\n'
+            "  ]\n"
+            "}\n"
+            "Если фактов по остановке нет, используй её описание и оставь пустой массив sources."
         )
 
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ]
+
         content = await self._call_chat_api(messages)
-        return content.strip()
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError:
+            return fallback
+        return _normalize_explain_result(parsed, fallback)
 
     async def _call_chat_api(self, messages: list[dict[str, Any]]) -> str:
         api_base = (self._settings.llm_api_base or "").rstrip("/")
@@ -180,7 +208,7 @@ class LLMClient:
         if "tags" in normalized:
             normalized["tags"] = normalize_tags(normalized.get("tags", []))
         if "city" not in normalized:
-            normalized["city"] = "Ростов-на-Дону"
+            normalized["city"] = "Ростовская область"
 
         for step in flow:
             value = normalized.get(step["field"])
@@ -199,7 +227,7 @@ class LLMClient:
 
         prefs = {
             "date": normalized["date"],
-            "city": normalized.get("city", "Ростов-на-Дону"),
+            "city": normalized.get("city", "Ростовская область"),
             "tags": normalize_tags(normalized.get("tags", [])),
             "budget": normalized.get("budget", "medium"),
             "pace": normalized.get("pace", "normal"),
@@ -210,21 +238,119 @@ class LLMClient:
         return response
 
     def _fallback_explain(
-        self, prefs: dict[str, Any], stops: list[dict[str, Any]], error: str | None = None
-    ) -> str:
-        if not stops:
-            return "Маршрут пока пуст — попробуйте выбрать другие интересы."
-        first = stops[0]["name"]
-        last = stops[-1]["name"] if len(stops) > 1 else first
-        parts = [
-            f"Начнём с {first}, чтобы сразу погрузиться в атмосферу города.",
-            f"Далее маршрут ведёт через ещё {max(len(stops) - 2, 0)} остановок и завершится в {last}.",
-        ]
+        self,
+        prefs: dict[str, Any],
+        stops: list[dict[str, Any]],
+        *,
+        context: Optional[dict[str, Any]] = None,
+        error: str | None = None,
+    ) -> dict[str, Any]:
+        facts = (context or {}).get("facts", {})
+        catalog = (context or {}).get("sources", [])
+        fact_lookup = {}
+        for fact in facts.get("per_stop", []):
+            name = fact.get("stop_name")
+            if name:
+                fact_lookup[name] = fact
+
+        city = prefs.get("city") or facts.get("city") or "город"
+        total = len(stops)
+
+        summary_parts = []
+        if total:
+            summary_parts.append(f"Маршрут по {city} включает {total} остановок и сочетает разные форматы отдыха.")
+        else:
+            summary_parts.append("Маршрут пока пуст — попробуйте выбрать другие интересы.")
+
         if error:
-            parts.append(f"(Подсказка LLM недоступна: {error})")
-        # Добавим «Источники» пустым разделом, чтобы фронт выглядел консистентно
-        parts.append("Источники: (нет доступных ссылок)")
-        return " ".join(parts)
+            summary_parts.append(f"(LLM недоступен: {error})")
+
+        summary = " ".join(summary_parts).strip()
+
+        stop_items: List[dict[str, Any]] = []
+        for idx, stop in enumerate(stops):
+            name = stop.get("name") or f"Точка {idx + 1}"
+            fact = fact_lookup.get(stop.get("name"))
+            insight = None
+            source_refs: List[dict[str, Any]] = []
+            if fact and fact.get("bullets"):
+                insight = fact["bullets"][0]
+                source_refs = [s for s in fact.get("sources", []) if s.get("url")]
+            if not insight:
+                description = (stop.get("description") or stop.get("desc") or "").strip()
+                tags = ", ".join(stop.get("tags", []) or [])
+                if description:
+                    insight = description
+                elif tags:
+                    insight = f"Место по интересам: {tags}."
+                else:
+                    insight = "Место интересно для короткой остановки по пути."
+            stop_items.append(
+                {
+                    "name": name,
+                    "insight": insight.strip(),
+                    "sources": source_refs,
+                }
+            )
+
+        return {
+            "summary": summary,
+            "stops": stop_items,
+            "sources": catalog,
+        }
+
+    def _prepare_web_context(self, web_facts: Optional[dict[str, Any]]) -> Tuple[dict[str, Any], List[dict[str, Any]]]:
+        """Нормализуем факты и формируем уникальный каталог источников."""
+        if not web_facts:
+            return {"per_stop": []}, []
+
+        catalog: List[dict[str, Any]] = []
+        url_to_id: dict[str, int] = {}
+        per_stop: List[dict[str, Any]] = []
+
+        for fact in web_facts.get("per_stop", []) or []:
+            stop_name = fact.get("stop_name")
+            bullets = fact.get("bullets") or []
+            processed_sources: List[dict[str, Any]] = []
+            for src in fact.get("sources", []) or []:
+                url = (src.get("url") or "").strip()
+                if not url:
+                    continue
+                sid = url_to_id.get(url)
+                if sid is None:
+                    sid = len(catalog) + 1
+                    url_to_id[url] = sid
+                    catalog.append(
+                        {
+                            "id": sid,
+                            "title": (src.get("title") or "").strip(),
+                            "url": url,
+                        }
+                    )
+                processed_sources.append(
+                    {
+                        "id": sid,
+                        "title": (src.get("title") or "").strip(),
+                        "url": url,
+                    }
+                )
+
+            per_stop.append(
+                {
+                    "stop_name": stop_name,
+                    "bullets": bullets,
+                    "sources": processed_sources,
+                    "lang": fact.get("lang"),
+                }
+            )
+
+        prepared = {"per_stop": per_stop}
+        if web_facts.get("city"):
+            prepared["city"] = web_facts["city"]
+        if web_facts.get("note"):
+            prepared["note"] = web_facts["note"]
+
+        return prepared, catalog
 
     # -------- web facts (Wikipedia) --------
     async def _mw_geosearch(
@@ -356,3 +482,69 @@ def _safe_json_loads(payload: str, default: ConversationResponse) -> Conversatio
     except json.JSONDecodeError:
         pass
     return default
+
+
+def _normalize_explain_result(data: Any, fallback: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return fallback
+
+    summary = str(data.get("summary", "")).strip()
+
+    stops_result: List[dict[str, Any]] = []
+    raw_stops = data.get("stops", [])
+    if isinstance(raw_stops, list):
+        for item in raw_stops:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name", "")).strip()
+            insight = str(item.get("insight") or item.get("description") or "").strip()
+            if not name or not insight:
+                continue
+            sources_field = item.get("sources", [])
+            normalized_sources: List[Any] = []
+            if isinstance(sources_field, list):
+                for src in sources_field:
+                    if isinstance(src, dict):
+                        url = str(src.get("url", "")).strip()
+                        if not url:
+                            continue
+                        normalized_sources.append(
+                            {
+                                "id": src.get("id"),
+                                "title": str(src.get("title", "")).strip(),
+                                "url": url,
+                            }
+                        )
+                    elif isinstance(src, (int, float, str)):
+                        normalized_sources.append({"id": src})
+            stops_result.append({"name": name, "insight": insight, "sources": normalized_sources})
+
+    sources_result: List[dict[str, Any]] = []
+    raw_sources = data.get("sources", [])
+    if isinstance(raw_sources, list):
+        for src in raw_sources:
+            if not isinstance(src, dict):
+                continue
+            url = str(src.get("url", "")).strip()
+            if not url:
+                continue
+            sources_result.append(
+                {
+                    "id": src.get("id"),
+                    "title": str(src.get("title", "")).strip(),
+                    "url": url,
+                }
+            )
+
+    if not summary:
+        summary = fallback.get("summary", "")
+    if not stops_result:
+        stops_result = fallback.get("stops", [])
+    if not sources_result:
+        sources_result = fallback.get("sources", [])
+
+    return {
+        "summary": summary,
+        "stops": stops_result,
+        "sources": sources_result,
+    }
