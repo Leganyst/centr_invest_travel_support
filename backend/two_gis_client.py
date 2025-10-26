@@ -219,7 +219,7 @@ def _params_common(settings: Settings, q: str, page: int, page_size: int) -> Dic
         "page_size": page_size,
         "locale": settings.dgis_locale,
         "fields": DEFAULT_FIELDS,
-        "key": settings.dgis_api_key.strip(),
+        "key": _sanitize_key(getattr(settings, "dgis_api_key", "")),
     }
 
 def fetch_places_by_radius(
@@ -423,7 +423,11 @@ def _wkt_from_selection(selection: Any) -> Optional[str]:
     return None
 
 def get_region_polygon_wkt(settings: Settings, region_query: str = "Ростовская область") -> Optional[str]:
-    """Возвращает (и кэширует) WKT-многоугольник региона для polygon=..."""
+    # если ключа нет — тихо возвращаем None и даём вызвавшему коду использовать bbox
+    if not is_enabled(settings):
+        print("[2GIS] API key missing -> WKT not available; caller will use bbox fallback")
+        return None
+
     cache_key = make_key("2gis_region_wkt", {"q": region_query, "locale": settings.dgis_locale})
     cached = cache_get(settings.cache_dir, cache_key)
     if cached:
@@ -436,7 +440,7 @@ def get_region_polygon_wkt(settings: Settings, region_query: str = "Ростов
         "page_size": 1,
         "page": 1,
         "locale": settings.dgis_locale,
-        "key": settings.dgis_api_key.strip(),
+        "key": _sanitize_key(getattr(settings, "dgis_api_key", "")),  # БЕЗ .strip()
     }
     items = _request(settings, params)
     if not items:
